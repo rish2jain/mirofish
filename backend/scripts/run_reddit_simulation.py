@@ -49,6 +49,8 @@ else:
 
 import re
 
+from app.utils.oasis_llm import create_oasis_model, get_oasis_semaphore
+
 
 class UnicodeFormatter(logging.Formatter):
     """Custom formatter that converts Unicode escape sequences to readable characters"""
@@ -432,39 +434,8 @@ class RedditSimulationRunner:
         return os.path.join(self.simulation_dir, "reddit_simulation.db")
     
     def _create_model(self):
-        """
-        Create an LLM model.
-
-        Uses configuration from the project root .env file (highest priority):
-        - LLM_API_KEY: API key
-        - LLM_BASE_URL: API base URL
-        - LLM_MODEL_NAME: Model name
-        """
-        # Read configuration from .env first (highest priority)
-        llm_api_key = os.environ.get("LLM_API_KEY", "")
-        llm_base_url = os.environ.get("LLM_BASE_URL", "")
-        llm_model = os.environ.get("LLM_MODEL_NAME", "")
-        
-        # If not in .env, fall back to config
-        if not llm_model:
-            llm_model = self.config.get("llm_model", "gpt-4o-mini")
-        
-        # Set environment variables required by camel-ai
-        if llm_api_key:
-            os.environ["OPENAI_API_KEY"] = llm_api_key
-        
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise ValueError("Missing API Key configuration. Please set LLM_API_KEY in the project root .env file")
-        
-        if llm_base_url:
-            os.environ["OPENAI_API_BASE_URL"] = llm_base_url
-        
-        print(f"LLM config: model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else 'default'}...")
-        
-        return ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI,
-            model_type=llm_model,
-        )
+        """Create an LLM model, including CLI-backed providers."""
+        return create_oasis_model(self.config, use_boost=True)
     
     def _get_active_agents_for_round(
         self, 
@@ -578,7 +549,7 @@ class RedditSimulationRunner:
             agent_graph=self.agent_graph,
             platform=oasis.DefaultPlatformType.REDDIT,
             database_path=db_path,
-            semaphore=30,  # Limit max concurrent LLM requests to prevent API overload
+            semaphore=get_oasis_semaphore(self.config, use_boost=True),
         )
         
         await self.env.reset()

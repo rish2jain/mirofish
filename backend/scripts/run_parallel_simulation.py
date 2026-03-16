@@ -156,6 +156,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from app.utils.oasis_llm import create_oasis_model, get_oasis_semaphore
 
 try:
     from camel.models import ModelFactory
@@ -982,60 +983,8 @@ def _get_comment_info(
 
 
 def create_model(config: Dict[str, Any], use_boost: bool = False):
-    """
-    Create an LLM model.
-
-    Supports dual LLM configuration for faster parallel simulation:
-    - Standard config: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME
-    - Boost config (optional): LLM_BOOST_API_KEY, LLM_BOOST_BASE_URL, LLM_BOOST_MODEL_NAME
-
-    If a boost LLM is configured, parallel simulation can use different API providers
-    for different platforms, improving concurrency.
-
-    Args:
-        config: Simulation configuration dict
-        use_boost: Whether to use the boost LLM configuration (if available)
-    """
-    # Check if boost configuration is available
-    boost_api_key = os.environ.get("LLM_BOOST_API_KEY", "")
-    boost_base_url = os.environ.get("LLM_BOOST_BASE_URL", "")
-    boost_model = os.environ.get("LLM_BOOST_MODEL_NAME", "")
-    has_boost_config = bool(boost_api_key)
-    
-    # Select which LLM to use based on parameters and configuration
-    if use_boost and has_boost_config:
-        # Use boost configuration
-        llm_api_key = boost_api_key
-        llm_base_url = boost_base_url
-        llm_model = boost_model or os.environ.get("LLM_MODEL_NAME", "")
-        config_label = "[Boost LLM]"
-    else:
-        # Use standard configuration
-        llm_api_key = os.environ.get("LLM_API_KEY", "")
-        llm_base_url = os.environ.get("LLM_BASE_URL", "")
-        llm_model = os.environ.get("LLM_MODEL_NAME", "")
-        config_label = "[Standard LLM]"
-
-    # If no model name in .env, fall back to config
-    if not llm_model:
-        llm_model = config.get("llm_model", "gpt-4o-mini")
-    
-    # Set environment variables required by camel-ai
-    if llm_api_key:
-        os.environ["OPENAI_API_KEY"] = llm_api_key
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise ValueError("Missing API Key configuration. Please set LLM_API_KEY in the project root .env file")
-    
-    if llm_base_url:
-        os.environ["OPENAI_API_BASE_URL"] = llm_base_url
-    
-    print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else 'default'}...")
-    
-    return ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=llm_model,
-    )
+    """Create an LLM model for OASIS, including CLI-backed providers."""
+    return create_oasis_model(config=config, use_boost=use_boost)
 
 
 def get_active_agents_for_round(
@@ -1157,7 +1106,7 @@ async def run_twitter_simulation(
         agent_graph=result.agent_graph,
         platform=oasis.DefaultPlatformType.TWITTER,
         database_path=db_path,
-        semaphore=30,  # Limit max concurrent LLM requests to prevent API overload
+        semaphore=get_oasis_semaphore(config, use_boost=False),
     )
 
     await result.env.reset()
@@ -1348,7 +1297,7 @@ async def run_reddit_simulation(
         agent_graph=result.agent_graph,
         platform=oasis.DefaultPlatformType.REDDIT,
         database_path=db_path,
-        semaphore=30,  # Limit max concurrent LLM requests to prevent API overload
+        semaphore=get_oasis_semaphore(config, use_boost=True),
     )
 
     await result.env.reset()

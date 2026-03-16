@@ -15,11 +15,10 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from openai import OpenAI
-
 from ..config import Config
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
+from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from .entity_reader import EntityNode, EntityReader
 
@@ -185,18 +184,20 @@ class OasisProfileGenerator:
         model_name: Optional[str] = None,
         graph_id: Optional[str] = None,
         storage: Optional[GraphStorage] = None,
+        provider: Optional[str] = None
     ):
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model_name = model_name or Config.LLM_MODEL_NAME
-
-        if not self.api_key:
-            raise ValueError("LLM_API_KEY is not configured")
-
-        self.client = OpenAI(
+        self.provider = (provider or Config.LLM_PROVIDER or "").lower()
+        self.llm = LLMClient(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            model=self.model_name,
+            provider=self.provider,
         )
+        self.provider = self.llm.provider
+        self.is_cli_provider = self.provider in ("claude-cli", "codex-cli")
 
         # Graph database for retrieving rich context
         self.db = GraphDatabase()
@@ -472,24 +473,14 @@ class OasisProfileGenerator:
 
         for attempt in range(max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
+                content = self.llm.chat(
                     messages=[
                         {"role": "system", "content": self._get_system_prompt(is_individual)},
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # Lower temperature on each retry
-                    # Do not set max_tokens, let the LLM generate freely
+                    temperature=0.7 - (attempt * 0.1),
                 )
-
-                content = response.choices[0].message.content
-
-                # Check if output was truncated (finish_reason is not 'stop')
-                finish_reason = response.choices[0].finish_reason
-                if finish_reason == 'length':
-                    logger.warning(f"LLM output was truncated (attempt {attempt+1}), attempting to fix...")
-                    content = self._fix_truncated_json(content)
 
                 # Try to parse JSON
                 try:
@@ -824,6 +815,15 @@ Important:
         # Set graph_id for graph retrieval
         if graph_id:
             self.graph_id = graph_id
+
+        if use_llm and self.is_cli_provider:
+            cli_parallel_limit = 2
+            if parallel_count > cli_parallel_limit:
+                logger.info(
+                    f"CLI LLM provider detected ({self.provider}), reducing profile generation parallelism "
+                    f"from {parallel_count} to {cli_parallel_limit}"
+                )
+                parallel_count = cli_parallel_limit
 
         total = len(entities)
         profiles = [None] * total  # Pre-allocate list to maintain order

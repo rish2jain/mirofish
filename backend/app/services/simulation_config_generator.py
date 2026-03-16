@@ -18,9 +18,8 @@ from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
-from openai import OpenAI
-
 from ..config import Config
+from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from .entity_reader import EntityNode, EntityReader
 
@@ -167,6 +166,7 @@ class SimulationParameters:
     reddit_config: Optional[PlatformConfig] = None
 
     # LLM configuration
+    llm_provider: str = ""
     llm_model: str = ""
     llm_base_url: str = ""
 
@@ -187,6 +187,7 @@ class SimulationParameters:
             "event_config": asdict(self.event_config),
             "twitter_config": asdict(self.twitter_config) if self.twitter_config else None,
             "reddit_config": asdict(self.reddit_config) if self.reddit_config else None,
+            "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
             "llm_base_url": self.llm_base_url,
             "generated_at": self.generated_at,
@@ -227,19 +228,20 @@ class SimulationConfigGenerator:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        provider: Optional[str] = None
     ):
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model_name = model_name or Config.LLM_MODEL_NAME
-
-        if not self.api_key:
-            raise ValueError("LLM_API_KEY is not configured")
-
-        self.client = OpenAI(
+        self.provider = (provider or Config.LLM_PROVIDER or "").lower()
+        self.llm = LLMClient(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            model=self.model_name,
+            provider=self.provider,
         )
+        self.provider = self.llm.provider
 
     def generate_config(
         self,
@@ -370,6 +372,7 @@ class SimulationConfigGenerator:
             event_config=event_config,
             twitter_config=twitter_config,
             reddit_config=reddit_config,
+            llm_provider=self.provider,
             llm_model=self.model_name,
             llm_base_url=self.base_url,
             generation_reasoning=" | ".join(reasoning_parts)
@@ -441,24 +444,14 @@ class SimulationConfigGenerator:
 
         for attempt in range(max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
+                content = self.llm.chat(
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # Lower temperature on each retry
-                    # No max_tokens set, let the LLM generate freely
+                    temperature=0.7 - (attempt * 0.1),
                 )
-
-                content = response.choices[0].message.content
-                finish_reason = response.choices[0].finish_reason
-
-                # Check if output was truncated
-                if finish_reason == 'length':
-                    logger.warning(f"LLM output truncated (attempt {attempt+1})")
-                    content = self._fix_truncated_json(content)
 
                 # Try to parse JSON
                 try:

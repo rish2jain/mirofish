@@ -265,6 +265,7 @@ class SimulationManager:
         
         try:
             state.status = SimulationStatus.PREPARING
+            state.error = None
             self._save_simulation_state(state)
             
             sim_dir = self._get_simulation_dir(simulation_id)
