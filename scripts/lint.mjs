@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
 const shouldFix = process.argv.includes('--fix');
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 if (shouldFix) {
   console.log('No auto-fixers are configured; running verification checks only.');
@@ -8,7 +9,7 @@ if (shouldFix) {
 
 const commands = [
   {
-    cmd: 'npm',
+    cmd: npmCommand,
     args: ['run', 'build', '--prefix', 'frontend'],
   },
   {
