@@ -14,6 +14,10 @@ A swarm intelligence prediction engine. Upload documents describing any scenario
 4. **Agents simulate social media** — dual-platform simulation (Twitter + Reddit) where agents post, reply, like, argue, and follow each other
 5. **Get a prediction report** — AI analyzes all simulation data and produces findings. Chat with the report agent or interview individual simulated agents.
 
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white)](http://discord.gg/ePf5aPaHnA)
+[![X](https://img.shields.io/badge/X-Follow-000000?style=flat-square&logo=x&logoColor=white)](https://x.com/mirofish_ai)
+[![Instagram](https://img.shields.io/badge/Instagram-Follow-E4405F?style=flat-square&logo=instagram&logoColor=white)](https://www.instagram.com/mirofish_ai/)
+
 ## Changes from upstream
 
 | Area | Upstream | This fork |
