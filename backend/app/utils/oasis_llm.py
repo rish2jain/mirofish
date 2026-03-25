@@ -20,7 +20,7 @@ from .logger import get_logger
 
 logger = get_logger('mirofish.oasis_llm')
 
-CLI_PROVIDERS = {'claude-cli', 'codex-cli'}
+CLI_PROVIDERS = {'claude-cli', 'codex-cli', 'gemini-cli'}
 DEFAULT_API_SEMAPHORE = 30
 DEFAULT_CLI_SEMAPHORE = 3
 

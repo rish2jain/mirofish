@@ -1,0 +1,9 @@
+{
+  "id": "crisis_comms",
+  "name": "Crisis Communications Simulation",
+  "description": "Predict public reaction to a crisis event and evaluate communication strategy effectiveness",
+  "default_requirement": "Simulate public reaction to this crisis over 14 days. Focus on social media sentiment, media coverage patterns, stakeholder trust, and effectiveness of crisis response messaging.",
+  "suggested_rounds": 10,
+  "entity_type_hints": ["journalist", "consumer", "employee", "executive", "activist", "politician", "influencer", "analyst"],
+  "system_prompt_addition": "Focus on crisis lifecycle dynamics: initial shock, information vacuum, narrative formation, blame attribution, and recovery trajectory. Track how different communication strategies affect public trust and sentiment."
+}

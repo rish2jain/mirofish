@@ -1,0 +1,9 @@
+{
+  "id": "ma_reaction",
+  "name": "M&A Reaction Forecast",
+  "description": "Predict market and stakeholder reaction to mergers, acquisitions, or major corporate restructuring",
+  "default_requirement": "Simulate market and public reaction to this M&A announcement over 30 days. Focus on investor sentiment, employee concerns, competitive dynamics, and regulatory scrutiny.",
+  "suggested_rounds": 12,
+  "entity_type_hints": ["investor", "analyst", "employee", "competitor", "regulator", "customer", "journalist", "executive"],
+  "system_prompt_addition": "Focus on deal valuation dynamics, antitrust concerns, cultural integration challenges, synergy skepticism, and competitive repositioning. Track how sentiment evolves as more details emerge."
+}

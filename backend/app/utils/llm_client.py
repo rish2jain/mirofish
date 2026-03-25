@@ -1,6 +1,6 @@
 """
 LLM Client Wrapper
-Supports OpenAI API, Anthropic API, Claude CLI, and Codex CLI
+Supports OpenAI API, Anthropic API, Claude CLI, Codex CLI, and Gemini CLI
 """
 
 import json
@@ -15,7 +15,7 @@ logger = get_logger('mirofish.llm_client')
 
 
 class LLMClient:
-    """LLM Client - supports OpenAI, Anthropic, Claude CLI, and Codex CLI"""
+    """LLM Client - supports OpenAI, Anthropic, Claude CLI, Codex CLI, and Gemini CLI"""
 
     def __init__(
         self,
@@ -30,7 +30,7 @@ class LLMClient:
         self.provider = (provider or Config.LLM_PROVIDER or "").lower()
 
         # CLI providers don't need an API key
-        if self.provider in ("claude-cli", "codex-cli"):
+        if self.provider in ("claude-cli", "codex-cli", "gemini-cli"):
             self.client = None
         elif not self.api_key:
             raise ValueError("LLM_API_KEY not configured")
@@ -49,7 +49,7 @@ class LLMClient:
                     "Install with: pip install anthropic"
                 )
             self.client = Anthropic(api_key=self.api_key)
-        elif self.provider in ("claude-cli", "codex-cli"):
+        elif self.provider in ("claude-cli", "codex-cli", "gemini-cli"):
             self.client = None  # CLI-based, no SDK client needed
         else:
             from openai import OpenAI
@@ -67,6 +67,8 @@ class LLMClient:
             return "anthropic"
         if "anthropic" in base_lower:
             return "anthropic"
+        if "gemini" in model_lower:
+            return "gemini-cli"
 
         return "openai"
 
@@ -117,6 +119,8 @@ class LLMClient:
             return self._chat_claude_cli(messages, temperature, max_tokens, response_format)
         elif self.provider == "codex-cli":
             return self._chat_codex_cli(messages, temperature, max_tokens, response_format)
+        elif self.provider == "gemini-cli":
+            return self._chat_gemini_cli(messages, temperature, max_tokens, response_format)
         elif self.provider == "anthropic":
             return self._chat_anthropic(messages, temperature, max_tokens, response_format)
         else:
@@ -280,6 +284,48 @@ class LLMClient:
 
         except subprocess.TimeoutExpired:
             raise RuntimeError("Codex CLI timed out after 180s")
+
+    def _chat_gemini_cli(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        response_format: Optional[Dict] = None
+    ) -> str:
+        """Chat via Gemini CLI (uses your Google subscription)"""
+        system_text, conversation = self._split_system_message(messages)
+
+        # Build the prompt
+        prompt_parts = []
+        if system_text:
+            prompt_parts.append(f"SYSTEM INSTRUCTIONS:\n{system_text}\n")
+
+        if response_format and response_format.get("type") == "json_object":
+            prompt_parts.append("IMPORTANT: Respond with valid JSON only. No markdown, no explanation, just pure JSON.\n")
+
+        for msg in conversation:
+            role = msg.get("role", "user").upper()
+            prompt_parts.append(f"{role}: {msg['content']}")
+
+        prompt = "\n\n".join(prompt_parts)
+
+        try:
+            result = subprocess.run(
+                ["gemini", "-p", prompt],
+                capture_output=True, text=True, timeout=180,
+                cwd="/tmp"
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Gemini CLI error: {result.stderr[:200]}")
+                raise RuntimeError(f"Gemini CLI failed: {result.stderr[:200]}")
+
+            # Gemini outputs plain text directly
+            content = result.stdout.strip()
+            return self._clean_content(content)
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Gemini CLI timed out after 180s")
 
     def chat_json(
         self,

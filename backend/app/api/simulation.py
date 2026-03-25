@@ -2150,3 +2150,136 @@ def close_simulation_env():
             "success": False,
             "error": str(e)
         }), 500
+
+
+# ============== Scenario Forking Endpoints ==============
+
+@simulation_bp.route('/fork', methods=['POST'])
+def fork_simulation():
+    """
+    Fork an existing simulation with modified parameters (A/B scenario testing).
+
+    Request (JSON):
+        {
+            "simulation_id": "sim_xxxx",
+            "changes": {
+                "requirement": "Modified requirement text",
+                "max_rounds": 20,
+                "variable_overrides": {"key": "value"}
+            }
+        }
+
+    Returns:
+        New simulation state with forked_from metadata.
+    """
+    try:
+        data = request.get_json() or {}
+
+        source_id = data.get('simulation_id')
+        if not source_id:
+            return jsonify({
+                "success": False,
+                "error": "Please provide simulation_id"
+            }), 400
+
+        changes = data.get('changes', {})
+
+        manager = SimulationManager()
+        source_state = manager.get_simulation(source_id)
+        if not source_state:
+            return jsonify({
+                "success": False,
+                "error": f"Source simulation not found: {source_id}"
+            }), 404
+
+        # Create new simulation from the same project/graph
+        new_state = manager.create_simulation(
+            project_id=source_state.project_id,
+            graph_id=source_state.graph_id,
+            enable_twitter=source_state.enable_twitter,
+            enable_reddit=source_state.enable_reddit,
+        )
+
+        # Store fork metadata in the simulation directory
+        import json
+        sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, new_state.simulation_id)
+        os.makedirs(sim_dir, exist_ok=True)
+        fork_meta = {
+            "forked_from": source_id,
+            "changes": changes,
+        }
+        meta_path = os.path.join(sim_dir, "fork_metadata.json")
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(fork_meta, f, indent=2, ensure_ascii=False)
+
+        # If the source had a requirement override in the project, update it
+        if changes.get('requirement'):
+            project = ProjectManager.get_project(source_state.project_id)
+            if project:
+                # Store the override requirement in fork metadata (not modifying original project)
+                fork_meta['original_requirement'] = project.simulation_requirement
+                with open(meta_path, 'w', encoding='utf-8') as f:
+                    json.dump(fork_meta, f, indent=2, ensure_ascii=False)
+
+        response_data = new_state.to_dict()
+        response_data['forked_from'] = source_id
+        response_data['changes'] = changes
+
+        return jsonify({
+            "success": True,
+            "data": response_data
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to fork simulation: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@simulation_bp.route('/<simulation_id>/cost-estimate', methods=['GET'])
+def get_cost_estimate(simulation_id: str):
+    """
+    Get estimated token cost for a simulation.
+
+    Returns cost breakdown based on agent count, rounds, and model pricing.
+    """
+    try:
+        from ..utils.cost_estimator import estimate_simulation_cost
+
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        if not state:
+            return jsonify({
+                "success": False,
+                "error": f"Simulation not found: {simulation_id}"
+            }), 404
+
+        # Get config for round count
+        config = manager.get_simulation_config(simulation_id)
+        max_rounds = Config.OASIS_DEFAULT_MAX_ROUNDS
+        if config:
+            max_rounds = config.get('max_rounds', max_rounds)
+
+        model = Config.LLM_MODEL_NAME or "unknown"
+        is_cli = (Config.LLM_PROVIDER or "").lower() in ("claude-cli", "codex-cli", "gemini-cli")
+
+        estimate = estimate_simulation_cost(
+            num_agents=state.profiles_count or state.entities_count or 10,
+            num_rounds=max_rounds,
+            model=model,
+            is_cli=is_cli,
+        )
+
+        return jsonify({
+            "success": True,
+            "data": estimate.to_dict()
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to estimate cost: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500

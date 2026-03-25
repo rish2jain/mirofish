@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mirofish": {
+      "command": "node",
+      "args": ["mcp-server/src/index.js"],
+      "cwd": ".",
+      "env": {
+        "MIROFISH_API_URL": "http://localhost:5001"
+      }
+    }
+  }
+}

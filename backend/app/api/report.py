@@ -4,9 +4,10 @@ Provides simulation report generation, retrieval, chat, and other endpoints
 """
 
 import os
+import io
 import traceback
 import threading
-from flask import request, jsonify, send_file
+from flask import request, jsonify, send_file, make_response
 
 from . import report_bp
 from ..config import Config
@@ -832,6 +833,193 @@ def stream_console_log(report_id: str):
         
     except Exception as e:
         logger.error(f"Failed to get console log: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============== Report Comparison & Export API ==============
+
+@report_bp.route('/compare', methods=['POST'])
+def compare_reports():
+    """
+    Compare two reports side-by-side (A/B scenario diff).
+
+    Request (JSON):
+        {
+            "report_id_a": "report_xxxx",
+            "report_id_b": "report_yyyy"
+        }
+
+    Returns:
+        Structured comparison with both reports' content and metadata.
+    """
+    try:
+        data = request.get_json() or {}
+        report_id_a = data.get('report_id_a')
+        report_id_b = data.get('report_id_b')
+
+        if not report_id_a or not report_id_b:
+            return jsonify({
+                "success": False,
+                "error": "Please provide both report_id_a and report_id_b"
+            }), 400
+
+        report_a = ReportManager.get_report(report_id_a)
+        report_b = ReportManager.get_report(report_id_b)
+
+        if not report_a:
+            return jsonify({"success": False, "error": f"Report not found: {report_id_a}"}), 404
+        if not report_b:
+            return jsonify({"success": False, "error": f"Report not found: {report_id_b}"}), 404
+
+        # Build comparison structure
+        comparison = {
+            "report_a": {
+                "report_id": report_a.report_id,
+                "simulation_id": report_a.simulation_id,
+                "status": report_a.status.value,
+                "created_at": report_a.created_at if hasattr(report_a, 'created_at') else None,
+                "markdown_content": report_a.markdown_content,
+            },
+            "report_b": {
+                "report_id": report_b.report_id,
+                "simulation_id": report_b.simulation_id,
+                "status": report_b.status.value,
+                "created_at": report_b.created_at if hasattr(report_b, 'created_at') else None,
+                "markdown_content": report_b.markdown_content,
+            },
+        }
+
+        # Extract section-level comparison if both have sections
+        sections_a = ReportManager.get_generated_sections(report_id_a)
+        sections_b = ReportManager.get_generated_sections(report_id_b)
+
+        if sections_a and sections_b:
+            comparison["sections_a"] = sections_a
+            comparison["sections_b"] = sections_b
+            comparison["section_count_a"] = len(sections_a)
+            comparison["section_count_b"] = len(sections_b)
+
+        return jsonify({
+            "success": True,
+            "data": comparison
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to compare reports: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@report_bp.route('/<report_id>/pdf', methods=['GET'])
+def export_report_pdf(report_id: str):
+    """
+    Export report as a branded PDF.
+
+    Uses markdown-to-HTML conversion with branded CSS, then converts to PDF.
+    Falls back to plain-text PDF if weasyprint is not available.
+    """
+    try:
+        report = ReportManager.get_report(report_id)
+        if not report:
+            return jsonify({"success": False, "error": f"Report not found: {report_id}"}), 404
+
+        if report.status != ReportStatus.COMPLETED:
+            return jsonify({"success": False, "error": "Report is not yet completed"}), 400
+
+        markdown_content = report.markdown_content or ""
+
+        # Convert markdown to HTML
+        try:
+            import markdown
+            html_body = markdown.markdown(
+                markdown_content,
+                extensions=['tables', 'fenced_code', 'toc']
+            )
+        except ImportError:
+            # Fallback: wrap raw markdown in <pre>
+            html_body = f"<pre>{markdown_content}</pre>"
+
+        # Branded HTML wrapper
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page {{
+        size: A4;
+        margin: 2cm;
+        @top-center {{
+            content: "MiroFish Simulation Report";
+            font-size: 9pt;
+            color: #666;
+        }}
+        @bottom-center {{
+            content: "Page " counter(page) " of " counter(pages);
+            font-size: 9pt;
+            color: #666;
+        }}
+    }}
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 11pt;
+        line-height: 1.6;
+        color: #1a1a1a;
+        max-width: 100%;
+    }}
+    h1 {{ color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }}
+    h2 {{ color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }}
+    h3 {{ color: #334155; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+    th, td {{ border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; }}
+    th {{ background-color: #f8fafc; font-weight: 600; }}
+    code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }}
+    pre {{ background: #f8fafc; padding: 16px; border-radius: 6px; overflow-x: auto; }}
+    blockquote {{ border-left: 4px solid #3b82f6; margin: 1em 0; padding: 0.5em 1em; background: #f8fafc; }}
+    .header {{
+        text-align: center;
+        margin-bottom: 2em;
+        padding-bottom: 1em;
+        border-bottom: 3px solid #3b82f6;
+    }}
+    .header h1 {{ border: none; color: #3b82f6; font-size: 24pt; }}
+    .header .meta {{ color: #64748b; font-size: 10pt; }}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>MiroFish Simulation Report</h1>
+    <div class="meta">
+        Report ID: {report_id} | Simulation: {report.simulation_id}
+    </div>
+</div>
+{html_body}
+</body>
+</html>"""
+
+        # Try weasyprint for high-quality PDF
+        try:
+            from weasyprint import HTML
+            pdf_bytes = HTML(string=html).write_pdf()
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"{report_id}.pdf",
+            )
+        except ImportError:
+            logger.warning("weasyprint not installed — returning HTML instead of PDF")
+            response = make_response(html)
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="{report_id}.html"'
+            return response
+
+    except Exception as e:
+        logger.error(f"Failed to export PDF: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e)

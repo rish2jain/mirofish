@@ -172,6 +172,30 @@
               <div class="console-header">
                 <span class="console-label">>_ 02 / Simulation Prompt</span>
               </div>
+
+              <!-- Template Selector -->
+              <div class="template-selector">
+                <label class="template-label">Template</label>
+                <select
+                  v-model="selectedTemplateId"
+                  class="template-select"
+                  :disabled="loading"
+                  @change="handleTemplateChange"
+                >
+                  <option value="">Custom</option>
+                  <option
+                    v-for="tpl in templates"
+                    :key="tpl.id"
+                    :value="tpl.id"
+                  >
+                    {{ tpl.name }}
+                  </option>
+                </select>
+                <p v-if="selectedTemplateDescription" class="template-description">
+                  {{ selectedTemplateDescription }}
+                </p>
+              </div>
+
               <div class="input-wrapper">
                 <textarea
                   v-model="formData.simulationRequirement"
@@ -207,9 +231,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
+import { listTemplates } from '../api/templates'
 
 const router = useRouter()
 
@@ -225,6 +250,39 @@ const files = ref([])
 const loading = ref(false)
 const error = ref('')
 const isDragOver = ref(false)
+
+// Template state
+const templates = ref([])
+const selectedTemplateId = ref('')
+
+const selectedTemplateDescription = computed(() => {
+  if (!selectedTemplateId.value) return ''
+  const tpl = templates.value.find(t => t.id === selectedTemplateId.value)
+  return tpl?.description || ''
+})
+
+const handleTemplateChange = () => {
+  if (!selectedTemplateId.value) return
+  const tpl = templates.value.find(t => t.id === selectedTemplateId.value)
+  if (tpl) {
+    formData.value = { ...formData.value, simulationRequirement: tpl.default_requirement }
+  }
+}
+
+const fetchTemplates = async () => {
+  try {
+    const res = await listTemplates()
+    if (Array.isArray(res)) {
+      templates.value = res
+    }
+  } catch (err) {
+    console.warn('Failed to load templates:', err)
+  }
+}
+
+onMounted(() => {
+  fetchTemplates()
+})
 
 // File input ref
 const fileInput = ref(null)
@@ -294,7 +352,7 @@ const startSimulation = () => {
 
   // Store pending upload data
   import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
-    setPendingUpload(files.value, formData.value.simulationRequirement)
+    setPendingUpload(files.value, formData.value.simulationRequirement, selectedTemplateId.value)
 
     // Navigate to Process page immediately (use special identifier for new project)
     router.push({
@@ -786,6 +844,49 @@ const startSimulation = () => {
   font-size: 0.7rem;
   color: #BBB;
   letter-spacing: 1px;
+}
+
+/* Template Selector */
+.template-selector {
+  margin-bottom: 12px;
+}
+
+.template-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #999;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.template-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #DDD;
+  background: #FAFAFA;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--black);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.template-select:hover {
+  border-color: #999;
+}
+
+.template-select:focus {
+  border-color: var(--orange);
+}
+
+.template-description {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--gray-text);
+  line-height: 1.4;
 }
 
 .input-wrapper {

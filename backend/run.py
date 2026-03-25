@@ -18,12 +18,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
 from app.config import Config
+from app.core.llm_orchestrator import detect_backend
 
 
 def main():
     """Main function"""
-    # Validate configuration
-    errors = Config.validate()
+    # Detect LLM backend and validate configuration
+    orchestration = detect_backend()
+    errors = Config.validate(llm_backend=orchestration.provider)
     if errors:
         print("Configuration errors:")
         for err in errors:

@@ -1,0 +1,9 @@
+{
+  "id": "regulatory_impact",
+  "name": "Regulatory Impact Analysis",
+  "description": "Predict public and market reaction to regulatory changes, policy announcements, or compliance requirements",
+  "default_requirement": "Analyze public and market reaction to this regulatory change over 60 days. Focus on stakeholder sentiment, compliance concerns, market volatility, and political responses.",
+  "suggested_rounds": 15,
+  "entity_type_hints": ["regulator", "company", "analyst", "consumer", "politician", "lobbyist", "journalist"],
+  "system_prompt_addition": "Focus on regulatory compliance dynamics, market impact, stakeholder coalitions, and political lobbying. Pay attention to how different industries and consumer groups react differently to regulatory changes."
+}

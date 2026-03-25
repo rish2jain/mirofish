@@ -126,11 +126,18 @@ class Config:
     REPORT_AGENT_TEMPERATURE = float(os.environ.get("REPORT_AGENT_TEMPERATURE", "0.5"))
 
     @classmethod
-    def validate(cls):
+    def validate(cls, llm_backend=None):
         """Validate required configuration."""
         errors = []
-        if cls.LLM_PROVIDER not in ("claude-cli", "codex-cli") and not cls.LLM_API_KEY:
-            errors.append("LLM_API_KEY not configured (set LLM_PROVIDER=claude-cli or codex-cli to use CLI instead)")
+        # If a CLI backend was auto-detected, API key is not required
+        cli_backends = {"claude-cli", "codex-cli", "gemini-cli"}
+        effective_provider = llm_backend or cls.LLM_PROVIDER
+        if effective_provider not in cli_backends and not cls.LLM_API_KEY:
+            errors.append(
+                "No local LLM CLIs (claude, codex, gemini) found on PATH. "
+                "Please either install one or configure API keys in .env "
+                "(LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME)."
+            )
         if cls.GRAPH_BACKEND not in {"kuzu", "json"}:
             errors.append("GRAPH_BACKEND must be either 'kuzu' or 'json'")
         return errors

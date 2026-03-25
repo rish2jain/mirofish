@@ -63,6 +63,52 @@ services:
     networks:
       - traefik
 
+  claude-proxy:
+    build: ./claude-proxy
+    container_name: mirofish-claude-proxy
+    restart: unless-stopped
+    environment:
+      - PATH=/usr/local/bin:/usr/bin:/bin:/home/deploy/.local/bin
+      - NODE_PATH=/home/deploy/.local/lib/node_modules
+      - CLAUDE_PROXY_WORKERS=${CLAUDE_PROXY_WORKERS:-4}
+      - CLAUDE_PROXY_TIMEOUT=${CLAUDE_PROXY_TIMEOUT:-120}
+    ports:
+      - "11436:11436"
+    volumes:
+      - /home/deploy/.local/bin:/home/deploy/.local/bin:ro
+      - /home/deploy/.local/share/claude:/home/deploy/.local/share/claude:ro
+      - /home/deploy/.local/lib/node_modules:/home/deploy/.local/lib/node_modules:ro
+      - /home/deploy/.claude:/root/.claude:ro
+      - /home/deploy/.claude.json:/root/.claude.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - traefik
+
+  gemini-proxy:
+    build: ./gemini-proxy
+    container_name: mirofish-gemini-proxy
+    restart: unless-stopped
+    environment:
+      - PATH=/usr/local/bin:/usr/bin:/bin:/home/deploy/.local/bin
+      - GEMINI_PROXY_WORKERS=${GEMINI_PROXY_WORKERS:-4}
+      - GEMINI_PROXY_TIMEOUT=${GEMINI_PROXY_TIMEOUT:-180}
+    ports:
+      - "11437:11437"
+    volumes:
+      - /home/deploy/.local/bin:/home/deploy/.local/bin:ro
+      - /home/deploy/.config/gemini:/root/.config/gemini:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - traefik
+
 networks:
   traefik:
     external: true

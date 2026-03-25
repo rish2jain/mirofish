@@ -40,7 +40,16 @@ def create_app(config_class=Config):
         logger.info("=" * 50)
         logger.info("MiroFish Backend starting...")
         logger.info("=" * 50)
-    
+
+    # Detect LLM backend
+    from .core.llm_orchestrator import detect_backend
+
+    orchestration = detect_backend()
+    app.extensions["llm_backend"] = orchestration
+
+    if should_log_startup:
+        logger.info("LLM backend: %s (binary: %s)", orchestration.backend.value, orchestration.binary_path or "N/A")
+
     # Enable CORS
     CORS(app, resources={r"/api/*": {"origins": app.config.get('CORS_ORIGINS', [])}})
 
@@ -73,14 +82,22 @@ def create_app(config_class=Config):
     
     # Register blueprints
     from .api import graph_bp, simulation_bp, report_bp
+    from .api.templates import templates_bp
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
+    app.register_blueprint(templates_bp, url_prefix='/api/templates')
     
     # Health check
     @app.route('/health')
     def health():
-        return {'status': 'ok', 'service': 'MiroFish Backend'}
+        orch = app.extensions.get("llm_backend")
+        result = {'status': 'ok', 'service': 'MiroFish Backend'}
+        if orch:
+            result['llm_backend'] = orch.backend.value
+            result['llm_binary'] = orch.binary_path
+            result['llm_model'] = orch.model
+        return result
 
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
