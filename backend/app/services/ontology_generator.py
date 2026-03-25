@@ -4,8 +4,12 @@ Interface 1: Analyze text content and generate entity and relationship type defi
 """
 
 import json
-from typing import Dict, Any, List, Optional
+import logging
+from typing import Any, Dict, List, Optional
 from ..utils.llm_client import LLMClient
+from ..utils.ontology_response import unwrap_malformed_ontology
+
+logger = logging.getLogger(__name__)
 
 
 # System prompt for ontology generation
@@ -193,12 +197,34 @@ class OntologyGenerator:
             {"role": "user", "content": user_message}
         ]
 
-        # Call LLM
-        result = self.llm_client.chat_json(
-            messages=messages,
-            temperature=0.3,
-            max_tokens=4096
-        )
+        # Call LLM — use structured output (Pydantic schema) when available,
+        # which gives schema-constrained JSON via Anthropic's messages.parse().
+        # Falls back to chat_json + manual validation for other providers.
+        from ..utils.structured_schemas import OntologyResult
+
+        try:
+            structured = self.llm_client.chat_structured(
+                messages=messages,
+                output_schema=OntologyResult,
+                temperature=0.3,
+                max_tokens=4096,
+            )
+            result = structured.model_dump()
+            logger.info(
+                "Structured output: %d entity_types, %d edge_types",
+                len(result.get("entity_types", [])),
+                len(result.get("edge_types", [])),
+            )
+        except Exception as e:
+            logger.warning("Structured output failed (%s), falling back to chat_json", e)
+            result = self.llm_client.chat_json(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=4096,
+                expected_keys=("entity_types", "edge_types"),
+            )
+            logger.info("LLM returned type=%s, keys=%s", type(result).__name__,
+                         list(result.keys()) if isinstance(result, dict) else f"len={len(result)}" if isinstance(result, list) else "N/A")
 
         # Validate and post-process
         result = self._validate_and_process(result)
@@ -254,8 +280,10 @@ Based on the above content, design entity types and relationship types suitable 
 
         return message
 
-    def _validate_and_process(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_and_process(self, result: Any) -> Dict[str, Any]:
         """Validate and post-process results"""
+
+        result = unwrap_malformed_ontology(result)
 
         # Ensure required fields exist
         if "entity_types" not in result:
@@ -265,8 +293,12 @@ Based on the above content, design entity types and relationship types suitable 
         if "analysis_summary" not in result:
             result["analysis_summary"] = ""
 
-        # Validate entity types
+        # Validate entity types — skip any non-dict items
+        valid_entities = []
         for entity in result["entity_types"]:
+            if not isinstance(entity, dict):
+                logger.warning("Skipping non-dict entity_type item: %s", type(entity).__name__)
+                continue
             if "attributes" not in entity:
                 entity["attributes"] = []
             if "examples" not in entity:
@@ -274,15 +306,23 @@ Based on the above content, design entity types and relationship types suitable 
             # Ensure description does not exceed 100 characters
             if len(entity.get("description", "")) > 100:
                 entity["description"] = entity["description"][:97] + "..."
+            valid_entities.append(entity)
+        result["entity_types"] = valid_entities
 
-        # Validate relationship types
+        # Validate relationship types — skip any non-dict items
+        valid_edges = []
         for edge in result["edge_types"]:
+            if not isinstance(edge, dict):
+                logger.warning("Skipping non-dict edge_type item: %s", type(edge).__name__)
+                continue
             if "source_targets" not in edge:
                 edge["source_targets"] = []
             if "attributes" not in edge:
                 edge["attributes"] = []
             if len(edge.get("description", "")) > 100:
                 edge["description"] = edge["description"][:97] + "..."
+            valid_edges.append(edge)
+        result["edge_types"] = valid_edges
 
         # Graph database limits: max 10 custom entity types, max 10 custom edge types
         MAX_ENTITY_TYPES = 10

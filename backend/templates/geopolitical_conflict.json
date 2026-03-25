@@ -1,0 +1,9 @@
+{
+  "id": "geopolitical_conflict",
+  "name": "Geopolitical Conflict Resolution",
+  "description": "Predict global public, market, and stakeholder reaction to ceasefire, peace deal, or conflict escalation scenarios",
+  "default_requirement": "Simulate global public and market reaction to this conflict development over 45 days. Model how different stakeholder groups (affected populations, allied governments, opposition factions, diaspora communities, oil/commodity markets, defense sector, media, humanitarian organizations) react as details emerge — including skepticism about enforcement, domestic political backlash, economic adjustment, and narrative shifts on social media.",
+  "suggested_rounds": 18,
+  "entity_type_hints": ["government_official", "military_leader", "diplomat", "journalist", "analyst", "citizen", "activist", "investor", "humanitarian_worker", "politician"],
+  "system_prompt_addition": "Focus on geopolitical dynamics: alliance shifts, domestic political pressure, sanctions impact, energy market volatility, humanitarian concerns, information warfare, and narrative control. Track how state actors, non-state actors, and civilian populations react differently. Pay attention to trust deficits, historical grievances, and how leaked details or spoiler actions affect public sentiment over time."
+}

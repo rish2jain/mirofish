@@ -262,10 +262,13 @@ const selectedTemplateDescription = computed(() => {
 })
 
 const handleTemplateChange = () => {
-  if (!selectedTemplateId.value) return
+  if (!selectedTemplateId.value) {
+    formData.value = { ...formData.value, simulationRequirement: '' }
+    return
+  }
   const tpl = templates.value.find(t => t.id === selectedTemplateId.value)
   if (tpl) {
-    formData.value = { ...formData.value, simulationRequirement: tpl.default_requirement }
+    formData.value = { ...formData.value, simulationRequirement: tpl.default_requirement ?? '' }
   }
 }
 

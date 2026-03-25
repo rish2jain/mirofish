@@ -6,6 +6,31 @@ import { z } from "zod";
 
 const API_URL = process.env.MIROFISH_API_URL || "http://localhost:5001";
 
+function parseSuccessBody(text, contentType) {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const ct = (contentType || "").toLowerCase();
+  const looksLikeJson =
+    ct.includes("application/json") ||
+    ct.includes("+json") ||
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[");
+  if (
+    !looksLikeJson &&
+    (ct.includes("text/html") ||
+      (ct.includes("text/plain") && !trimmed.startsWith("{")))
+  ) {
+    return text;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 async function apiCall(method, path, body = null) {
   const url = `${API_URL}${path}`;
   const opts = {
@@ -14,11 +39,25 @@ async function apiCall(method, path, body = null) {
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(`API ${method} ${path} failed (${res.status}): ${text}`);
   }
-  return res.json();
+  return parseSuccessBody(text, res.headers.get("content-type"));
+}
+
+/** Best-effort delete after failed prepare/start; logs cleanup failures only. */
+async function deleteSimulationBestEffort(simulationId, contextLabel) {
+  try {
+    await apiCall("POST", "/api/simulation/delete", {
+      simulation_id: simulationId,
+    });
+  } catch (cleanupErr) {
+    console.error(
+      `[mirofish-mcp] cleanup failed (simulation_id=${simulationId}, ${contextLabel}):`,
+      cleanupErr
+    );
+  }
 }
 
 // Helper to poll simulation status until complete
@@ -77,11 +116,17 @@ server.tool(
     const simId = created.data?.simulation_id || created.data?.id;
     if (!simId) throw new Error(`Failed to create simulation: ${JSON.stringify(created)}`);
 
-    // Step 2: Prepare simulation
-    await apiCall("POST", "/api/simulation/prepare", { simulation_id: simId });
-
-    // Step 3: Start simulation
-    await apiCall("POST", "/api/simulation/start", { simulation_id: simId });
+    try {
+      await apiCall("POST", "/api/simulation/prepare", { simulation_id: simId });
+      await apiCall("POST", "/api/simulation/start", { simulation_id: simId });
+    } catch (err) {
+      const originalMsg = err instanceof Error ? err.message : String(err);
+      await deleteSimulationBestEffort(simId, "prepare_or_start");
+      throw new Error(
+        `run_simulation failed after create (simulation_id=${simId}): ${originalMsg}`,
+        { cause: err }
+      );
+    }
 
     let result = { simulation_id: simId, status: "started" };
 

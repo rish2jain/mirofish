@@ -19,7 +19,7 @@ Make MiroFish automatically detect and prefer local CLI tools (Claude → Codex 
 
 - `Config.validate()` — if orchestrator found a CLI, skip API key requirement.
 - `create_app()` — calls orchestrator, stores result in `app.extensions["llm_backend"]`.
-- `/health` — returns `llm_backend` and `llm_binary` fields.
+- `/health` — returns `llm_backend` and `llm_model`; filesystem path `llm_binary` only in debug or when `EXPOSE_BINARY_PATH` is set (otherwise `llm_cli_on_path` boolean).
 - `LLMClient` — gains `gemini-cli` provider path.
 
 ### Data Model
@@ -129,18 +129,17 @@ Template picker dropdown in `Step1GraphBuild.vue` upload flow. Selecting a templ
 
 ### Structure
 
+The MCP server is implemented as **plain JavaScript** (not TypeScript). Tools are registered on the `McpServer` instance in a single entry file rather than a separate `tools/` package layout.
+
 ```
 mcp-server/
   package.json
   src/
-    index.ts          # MCP server entry point
-    tools/
-      list-templates.ts
-      run-simulation.ts
-      get-report.ts
-      inject-variable.ts
+    index.js          # MCP server entry; tools (list_templates, run_simulation, get_report, inject_variable, …) defined here
   .mcp.json           # Claude Code integration config
 ```
+
+(Older drafts assumed a TypeScript split such as `index.ts` and `tools/*.ts`; the repository uses `src/index.js` only.)
 
 ### Tools
 
@@ -159,7 +158,7 @@ mcp-server/
   "mcpServers": {
     "mirofish": {
       "command": "node",
-      "args": ["mcp-server/dist/index.js"],
+      "args": ["mcp-server/src/index.js"],
       "env": { "MIROFISH_API_URL": "http://localhost:5001" }
     }
   }
@@ -177,9 +176,8 @@ mcp-server/
 - `backend/templates/ma_reaction.json`
 - `backend/templates/crisis_comms.json`
 - `claude-proxy/main.py`
-- `claude-proxy/Dockerfile`
 - `gemini-proxy/main.py`
-- `gemini-proxy/Dockerfile`
+- `docker/cli-proxy.Dockerfile` (multi-stage build: targets `claude-proxy`, `gemini-proxy`; stubs in `claude-proxy/Dockerfile` and `gemini-proxy/Dockerfile` point here)
 - `mcp-server/` (full directory)
 
 ### Modified Files

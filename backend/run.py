@@ -33,8 +33,8 @@ def main():
         print("\nPlease check your .env file configuration")
         sys.exit(1)
 
-    # Create application
-    app = create_app()
+    # Reuse orchestration from validation (avoid a second detect_backend in create_app)
+    app = create_app(orchestration=orchestration)
 
     # Get run configuration
     host = os.environ.get('FLASK_HOST', '0.0.0.0')

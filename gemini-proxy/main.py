@@ -45,10 +45,19 @@ def build_prompt(messages: list[Message], response_format: Optional[dict] = None
             parts.append(f"ASSISTANT: {msg.content}")
 
     if response_format and response_format.get("type") == "json_object":
-        parts.insert(
-            1,
-            "IMPORTANT: Respond with valid JSON only. No markdown, no explanation, just pure JSON.",
+        leading_system_parts = 0
+        for msg in messages:
+            if msg.role == "system":
+                leading_system_parts += 1
+            else:
+                break
+        json_instruction = (
+            "IMPORTANT: Respond with valid JSON only. "
+            "No markdown, no explanation, just pure JSON."
         )
+        # After leading system block(s), else index 0 so user/assistant order
+        # below is unchanged.
+        parts.insert(leading_system_parts, json_instruction)
 
     return "\n\n".join(parts)
 
@@ -59,6 +68,7 @@ async def call_gemini(prompt: str) -> str:
         proc = await asyncio.create_subprocess_exec(
             "gemini",
             "-p",
+            "",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

@@ -508,7 +508,18 @@ class SimulationManager:
     def get_simulation(self, simulation_id: str) -> Optional[SimulationState]:
         """Get simulation state"""
         return self._load_simulation_state(simulation_id)
-    
+
+    def remove_simulation(self, simulation_id: str) -> Optional[SimulationState]:
+        """Remove a simulation from the in-memory cache (does not delete disk files).
+
+        Callers that delete a simulation should stop runners and remove on-disk data
+        separately (e.g. SimulationRunner.stop_simulation, shutil.rmtree).
+        """
+        removed = self._simulations.pop(simulation_id, None)
+        if removed is not None:
+            logger.info(f"Removed simulation from manager cache: {simulation_id}")
+        return removed
+
     def list_simulations(self, project_id: Optional[str] = None) -> List[SimulationState]:
         """List all simulations"""
         simulations = []

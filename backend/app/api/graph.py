@@ -1,5 +1,4 @@
-"""
-Graph-related API routes
+"""Graph-related API routes
 Uses project context mechanism with server-side persistent state
 """
 
@@ -161,7 +160,7 @@ def generate_ontology():
         }), 400
 
     except Exception as e:
-        logger.error(f"Failed to generate ontology: {str(e)}")
+        logger.error(f"Failed to generate ontology: {str(e)}", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e)
@@ -211,7 +210,7 @@ def build_graph():
         }), 400
 
     except Exception as e:
-        logger.error(f"Failed to start graph build: {str(e)}")
+        logger.error(f"Failed to start graph build: {str(e)}", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e)

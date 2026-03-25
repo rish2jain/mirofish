@@ -1,16 +1,19 @@
 """
 Token cost estimator for LLM usage across CLI and API modes.
 
-Provides approximate cost estimates based on token counts and published model prices.
+Provides approximate cost estimates from token counts and published model prices.
 CLI mode estimates tokens from character counts (1 token ≈ 4 chars).
 """
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
-# Published prices per 1M tokens (input, output) as of 2025
-# Prices are approximate and should be updated periodically
+# Published list prices per 1M tokens (input, output), USD.
+# Prices as of: 2025-03 — verify before relying on estimates; vendors change rates.
+# Sources (check current pages when updating this table):
+#   OpenAI: https://openai.com/api/pricing/
+#   Anthropic: https://www.anthropic.com/pricing
+#   Google (Gemini API): https://ai.google.dev/pricing
 MODEL_PRICES = {
     # OpenAI
     "gpt-4o": (2.50, 10.00),
@@ -31,6 +34,14 @@ MODEL_PRICES = {
     "codex": (0.0, 0.0),
     "gemini": (0.0, 0.0),
 }
+
+_ZERO_PRICES = (0.0, 0.0)
+# Longest keys first for prefix/substring matching (built once; see _lookup_prices).
+MODEL_PRICES_SORTED = sorted(
+    [(k, v) for k, v in MODEL_PRICES.items() if v != _ZERO_PRICES],
+    key=lambda kv: len(kv[0]),
+    reverse=True,
+)
 
 
 @dataclass(frozen=True)
@@ -76,9 +87,11 @@ def _lookup_prices(model: str):
     if model_lower in MODEL_PRICES:
         return MODEL_PRICES[model_lower]
 
-    # Substring match
-    for key, prices in MODEL_PRICES.items():
-        if key in model_lower or model_lower in key:
+    # Longest keys first: prefer specific catalog IDs over shorter substrings.
+    # Do not use reverse containment (model_lower in key): short names could
+    # match longer keys (e.g. "o1" inside "o1-mini").
+    for key, prices in MODEL_PRICES_SORTED:
+        if model_lower.startswith(key) or key in model_lower:
             return prices
 
     # Unknown model — return zero
@@ -112,7 +125,10 @@ def estimate_cost(
 
     note = ""
     if is_cli:
-        note = "CLI subscription — no per-token cost. Token estimate is approximate."
+        note = (
+            "CLI subscription — no per-token cost. "
+            "Token estimate is approximate."
+        )
         total_cost = 0.0
         input_cost = 0.0
         output_cost = 0.0

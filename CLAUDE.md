@@ -71,7 +71,7 @@ On startup, auto-detects the best available LLM backend:
 3. **Gemini CLI** (`gemini` on PATH) — uses Gemini subscription
 4. **API fallback** — requires `LLM_API_KEY` in `.env`
 
-If `LLM_PROVIDER` is explicitly set, auto-detection is skipped. The orchestrator result is stored in `app.extensions["llm_backend"]` and exposed via `/health`.
+If `LLM_PROVIDER` is explicitly set, auto-detection is skipped. The orchestrator result is stored in `app.extensions["llm_backend"]` and summarized via `/health` (`llm_backend`, `llm_model`; `llm_binary` path only when `FLASK_DEBUG` or `EXPOSE_BINARY_PATH` is set, otherwise `llm_cli_on_path`).
 
 ### Key service modules
 

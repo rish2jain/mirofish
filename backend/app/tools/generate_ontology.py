@@ -8,6 +8,7 @@ from ..services.ontology_generator import OntologyGenerator
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
+from ..utils.ontology_response import unwrap_malformed_ontology
 from ..resources.documents import DocumentStore
 from ..resources.projects import ProjectStore
 from ..core.session_manager import SessionManager
@@ -100,6 +101,15 @@ class GenerateOntologyTool:
                 simulation_requirement=simulation_requirement,
                 additional_context=additional_context or None,
             )
+
+            logger.info("Ontology result type=%s, repr=%.300s", type(ontology).__name__, repr(ontology))
+
+            if isinstance(ontology, list):
+                logger.warning(
+                    "Ontology was a list (len=%d), normalizing via unwrap_malformed_ontology",
+                    len(ontology),
+                )
+            ontology = unwrap_malformed_ontology(ontology)
 
             project.ontology = {
                 "entity_types": ontology.get("entity_types", []),

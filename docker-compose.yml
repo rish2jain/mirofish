@@ -64,7 +64,10 @@ services:
       - traefik
 
   claude-proxy:
-    build: ./claude-proxy
+    build:
+      context: .
+      dockerfile: docker/cli-proxy.Dockerfile
+      target: claude-proxy
     container_name: mirofish-claude-proxy
     restart: unless-stopped
     environment:
@@ -89,7 +92,10 @@ services:
       - traefik
 
   gemini-proxy:
-    build: ./gemini-proxy
+    build:
+      context: .
+      dockerfile: docker/cli-proxy.Dockerfile
+      target: gemini-proxy
     container_name: mirofish-gemini-proxy
     restart: unless-stopped
     environment:

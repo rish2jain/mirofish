@@ -43,13 +43,6 @@ else:
     load_dotenv(override=True)
 
 
-def _get_bool_env(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
-
-
 def _get_cors_origins():
     raw = os.environ.get('CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173')
     if raw.strip() == '*':
@@ -79,6 +72,8 @@ class Config:
 
     # Flask config
     DEBUG = _get_bool_env("FLASK_DEBUG", False)
+    # If true, /health includes llm_binary path (else only llm_cli_on_path)
+    EXPOSE_BINARY_PATH = _get_bool_env("EXPOSE_BINARY_PATH", False)
     SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
     CORS_ORIGINS = _get_cors_origins()
 

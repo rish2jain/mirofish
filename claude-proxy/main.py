@@ -12,7 +12,8 @@ import uuid
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="claude-proxy")
 
@@ -31,7 +32,10 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
-    stream: Optional[bool] = False
+    stream: Optional[bool] = Field(
+        default=False,
+        description="Must be false or omitted; claude-proxy does not implement SSE streaming.",
+    )
     response_format: Optional[dict] = None
 
 
@@ -46,21 +50,20 @@ def build_prompt(messages: list[Message], response_format: Optional[dict] = None
             parts.append(f"ASSISTANT: {msg.content}")
 
     if response_format and response_format.get("type") == "json_object":
-        parts.insert(
-            1,
-            "IMPORTANT: Respond with valid JSON only. No markdown, no explanation, just pure JSON.",
+        leading_system_parts = 0
+        for msg in messages:
+            if msg.role == "system":
+                leading_system_parts += 1
+            else:
+                break
+        json_instruction = (
+            "SYSTEM INSTRUCTIONS:\n"
+            "IMPORTANT: Respond with valid JSON only. No markdown, no explanation, just pure JSON."
         )
+        # After any leading system block(s); if none, prepend so user messages stay intact
+        parts.insert(leading_system_parts, json_instruction)
 
     return "\n\n".join(parts)
-
-
-def parse_claude_output(raw: str) -> str:
-    """Extract result text from Claude CLI JSON output."""
-    try:
-        output = json.loads(raw)
-        return output.get("result", raw).strip()
-    except (json.JSONDecodeError, AttributeError):
-        return raw.strip()
 
 
 async def call_claude(prompt: str) -> str:
@@ -70,7 +73,7 @@ async def call_claude(prompt: str) -> str:
             "claude",
             "-p",
             "--output-format",
-            "json",
+            "text",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -96,11 +99,32 @@ async def call_claude(prompt: str) -> str:
         err = stderr.decode()[:300]
         raise HTTPException(status_code=502, detail=f"Claude CLI error: {err}")
 
-    return parse_claude_output(stdout.decode())
+    return stdout.decode().strip()
 
 
-@app.post("/v1/chat/completions")
+@app.post(
+    "/v1/chat/completions",
+    description=(
+        "Returns a single non-streaming `chat.completion`. "
+        "Requests with `stream: true` receive HTTP 400 with an error object describing the limitation."
+    ),
+)
 async def chat_completions(req: ChatRequest):
+    if req.stream is True:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": (
+                        "claude-proxy does not support streaming; use stream=false or omit stream."
+                    ),
+                    "type": "invalid_request_error",
+                    "param": "stream",
+                    "code": "unsupported_value",
+                }
+            },
+        )
+
     prompt = build_prompt(req.messages, req.response_format)
     async with semaphore:
         content = await call_claude(prompt)

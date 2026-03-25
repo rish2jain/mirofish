@@ -12,6 +12,7 @@ export async function listTemplates() {
  * Get a single template by ID
  */
 export async function getTemplate(templateId) {
-  const response = await apiService.get(`/api/templates/${templateId}`)
+  const id = encodeURIComponent(String(templateId))
+  const response = await apiService.get(`/api/templates/${id}`)
   return response.data
 }

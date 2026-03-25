@@ -1,12 +1,14 @@
-"""
-Report API Routes
+"""Report API Routes
 Provides simulation report generation, retrieval, chat, and other endpoints
 """
 
 import os
 import io
+import re
 import traceback
 import threading
+
+import nh3
 from flask import request, jsonify, send_file, make_response
 
 from . import report_bp
@@ -19,6 +21,76 @@ from ..models.task import TaskManager
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.api.report')
+
+# Whitelist for report PDF/HTML export (markdown output + optional <pre> fallback)
+_PDF_HTML_ALLOWED_TAGS = frozenset({
+    "p", "br", "div", "span", "hr",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "strong", "b", "em", "i", "u", "del", "s",
+    "ul", "ol", "li", "blockquote",
+    "a", "code", "pre",
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+})
+_PDF_HTML_ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "rel"],
+    "th": ["colspan", "rowspan"],
+    "td": ["colspan", "rowspan"],
+    "*": ["class", "id"],
+}
+
+
+def _build_pdf_html_nh3_attributes() -> dict[str, frozenset[str]]:
+    """Map each allowed tag to nh3's per-tag attribute whitelist ('*' entries apply to all allowed tags)."""
+    wildcard = _PDF_HTML_ALLOWED_ATTRIBUTES["*"]
+    result: dict[str, frozenset[str]] = {}
+    for tag in _PDF_HTML_ALLOWED_TAGS:
+        names = set(wildcard)
+        extra = _PDF_HTML_ALLOWED_ATTRIBUTES.get(tag)
+        if extra:
+            names.update(extra)
+        result[tag] = frozenset(names)
+    return result
+
+
+_PDF_HTML_NH3_ATTRIBUTES = _build_pdf_html_nh3_attributes()
+_PDF_HTML_URL_SCHEMES = frozenset({"http", "https", "mailto"})
+_PDF_DANGEROUS_URL_SCHEME = re.compile(
+    r"^\s*([a-z0-9+.-]+)\s*:",
+    re.IGNORECASE,
+)
+
+
+def _pdf_html_url_scheme_is_dangerous(value: str) -> bool:
+    """True for javascript:/data:/vbscript: etc. (case-insensitive, tolerates leading space)."""
+    if not value or not value.strip():
+        return False
+    m = _PDF_DANGEROUS_URL_SCHEME.match(value)
+    if not m:
+        return False
+    return m.group(1).lower() in ("javascript", "vbscript", "data")
+
+
+def _pdf_html_attribute_filter(tag: str, attr: str, value: str) -> str | None:
+    """nh3 callback: drop event-handler-like attrs and dangerous URLs on href/src (defense in depth)."""
+    al = attr.lower()
+    if al.startswith("on"):
+        return None
+    if al in ("href", "src") and _pdf_html_url_scheme_is_dangerous(value):
+        return None
+    return value
+
+
+def _sanitize_report_html_for_pdf(html_body: str) -> str:
+    """Remove raw HTML/scripts from markdown output before embedding in export HTML/PDF."""
+    return nh3.clean(
+        html_body,
+        tags=_PDF_HTML_ALLOWED_TAGS,
+        attributes=_PDF_HTML_NH3_ATTRIBUTES,
+        url_schemes=_PDF_HTML_URL_SCHEMES,
+        link_rel=None,
+        strip_comments=True,
+        attribute_filter=_pdf_html_attribute_filter,
+    )
 
 
 # ============== Report Generation API ==============
@@ -943,6 +1015,8 @@ def export_report_pdf(report_id: str):
         except ImportError:
             # Fallback: wrap raw markdown in <pre>
             html_body = f"<pre>{markdown_content}</pre>"
+
+        html_body = _sanitize_report_html_for_pdf(html_body)
 
         # Branded HTML wrapper
         html = f"""<!DOCTYPE html>

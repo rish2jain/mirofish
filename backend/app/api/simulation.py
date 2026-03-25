@@ -1,9 +1,10 @@
-"""
-Simulation-related API routes
+"""Simulation-related API routes
 Step2: Entity reading & filtering, OASIS simulation preparation & execution (fully automated)
 """
 
 import os
+import re
+import shutil
 from flask import request, jsonify, send_file
 
 from . import simulation_bp
@@ -18,6 +19,41 @@ from ..utils.logger import get_logger
 from ..models.project import ProjectManager
 
 logger = get_logger('mirofish.api.simulation')
+
+_SIMULATION_ID_SAFE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+
+
+def _reject_unsafe_simulation_id(simulation_id) -> str | None:
+    """Return an error message if simulation_id is unsafe for filesystem use, else None."""
+    if not isinstance(simulation_id, str):
+        return "simulation_id must be a string"
+    if len(simulation_id) > 256:
+        return "Invalid simulation_id"
+    if ".." in simulation_id or "/" in simulation_id or "\\" in simulation_id:
+        return "Invalid simulation_id"
+    if not _SIMULATION_ID_SAFE_RE.match(simulation_id):
+        return "Invalid simulation_id"
+    return None
+
+
+def _resolved_simulation_dir_or_error(simulation_id: str) -> tuple[str | None, str | None]:
+    """
+    Resolve the absolute simulation data directory for a validated id.
+
+    Returns (sim_dir, None) on success, or (None, error_message) if the path
+    would lie outside OASIS_SIMULATION_DATA_DIR.
+    """
+    root = os.path.abspath(os.path.realpath(Config.OASIS_SIMULATION_DATA_DIR))
+    candidate = os.path.join(root, simulation_id)
+    sim_dir = os.path.abspath(os.path.normpath(os.path.realpath(candidate)))
+    try:
+        if os.path.commonpath([root, sim_dir]) != root:
+            return None, "Invalid simulation path"
+    except ValueError:
+        return None, "Invalid simulation path"
+    if sim_dir == root:
+        return None, "Invalid simulation path"
+    return sim_dir, None
 
 
 # Interview prompt optimization prefix
@@ -1148,6 +1184,68 @@ def stop_simulation():
         }), 500
 
 
+@simulation_bp.route('/delete', methods=['POST'])
+def delete_simulation():
+    """
+    Remove a simulation directory and in-memory bookkeeping (best-effort).
+
+    Used when a client created a simulation but failed during prepare/start.
+    Stops an active runner when possible, then deletes disk state under uploads.
+    """
+    try:
+        data = request.get_json() or {}
+        simulation_id = data.get('simulation_id')
+        if not simulation_id:
+            return jsonify({
+                "success": False,
+                "error": "Please provide simulation_id"
+            }), 400
+
+        id_err = _reject_unsafe_simulation_id(simulation_id)
+        if id_err:
+            return jsonify({
+                "success": False,
+                "error": id_err
+            }), 400
+
+        sim_dir, path_err = _resolved_simulation_dir_or_error(simulation_id)
+        if path_err or not sim_dir:
+            return jsonify({
+                "success": False,
+                "error": path_err or "Invalid simulation path"
+            }), 400
+
+        try:
+            SimulationRunner.stop_simulation(simulation_id)
+        except ValueError:
+            pass
+
+        SimulationRunner.cleanup_simulation_logs(simulation_id)
+
+        manager = SimulationManager()
+        manager.remove_simulation(simulation_id)
+
+        removed_dir = False
+        if os.path.isdir(sim_dir):
+            shutil.rmtree(sim_dir, ignore_errors=True)
+            removed_dir = True
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "simulation_id": simulation_id,
+                "removed_directory": removed_dir,
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to delete simulation: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 # ============== Real-time Status Monitoring Endpoints ==============
 
 @simulation_bp.route('/<simulation_id>/run-status', methods=['GET'])
@@ -2208,18 +2306,13 @@ def fork_simulation():
             "forked_from": source_id,
             "changes": changes,
         }
-        meta_path = os.path.join(sim_dir, "fork_metadata.json")
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(fork_meta, f, indent=2, ensure_ascii=False)
-
-        # If the source had a requirement override in the project, update it
         if changes.get('requirement'):
             project = ProjectManager.get_project(source_state.project_id)
             if project:
-                # Store the override requirement in fork metadata (not modifying original project)
                 fork_meta['original_requirement'] = project.simulation_requirement
-                with open(meta_path, 'w', encoding='utf-8') as f:
-                    json.dump(fork_meta, f, indent=2, ensure_ascii=False)
+        meta_path = os.path.join(sim_dir, "fork_metadata.json")
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(fork_meta, f, indent=2, ensure_ascii=False)
 
         response_data = new_state.to_dict()
         response_data['forked_from'] = source_id

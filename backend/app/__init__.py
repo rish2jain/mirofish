@@ -4,6 +4,7 @@ MiroFish Backend - Flask Application Factory
 
 import os
 import warnings
+from typing import TYPE_CHECKING, Optional
 
 # Suppress multiprocessing resource_tracker warnings (from third-party libs like transformers)
 # Must be set before all other imports
@@ -16,9 +17,17 @@ from .config import Config
 from .services.graph_storage import JSONStorage, KuzuDBStorage
 from .utils.logger import setup_logger, get_logger
 
+if TYPE_CHECKING:
+    from .core.llm_orchestrator import OrchestrationResult
 
-def create_app(config_class=Config):
-    """Flask application factory function"""
+
+def create_app(config_class=Config, orchestration: Optional["OrchestrationResult"] = None):
+    """Flask application factory function.
+
+    If ``orchestration`` is provided (e.g. from ``run.py`` after ``detect_backend()``),
+    it is stored as ``app.extensions[\"llm_backend\"]`` and ``detect_backend()`` is not
+    called again. Otherwise ``detect_backend()`` runs once inside the factory.
+    """
     frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../frontend/dist'))
     app = Flask(__name__, static_folder=frontend_dist if os.path.isdir(frontend_dist) else None)
     app.config.from_object(config_class)
@@ -41,10 +50,10 @@ def create_app(config_class=Config):
         logger.info("MiroFish Backend starting...")
         logger.info("=" * 50)
 
-    # Detect LLM backend
-    from .core.llm_orchestrator import detect_backend
+    if orchestration is None:
+        from .core.llm_orchestrator import detect_backend
 
-    orchestration = detect_backend()
+        orchestration = detect_backend()
     app.extensions["llm_backend"] = orchestration
 
     if should_log_startup:
@@ -95,8 +104,12 @@ def create_app(config_class=Config):
         result = {'status': 'ok', 'service': 'MiroFish Backend'}
         if orch:
             result['llm_backend'] = orch.backend.value
-            result['llm_binary'] = orch.binary_path
             result['llm_model'] = orch.model
+            expose_path = app.debug or app.config.get("EXPOSE_BINARY_PATH", False)
+            if expose_path:
+                result['llm_binary'] = orch.binary_path
+            else:
+                result['llm_cli_on_path'] = orch.binary_path is not None
         return result
 
     @app.route('/', defaults={'path': ''})

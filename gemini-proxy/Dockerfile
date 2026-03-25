@@ -1,14 +1,11 @@
-FROM python:3.11-slim
+# Build this image from the repository root — shared install logic lives in docker/cli-proxy.Dockerfile.
+#
+#   docker build -f docker/cli-proxy.Dockerfile --target gemini-proxy -t mirofish-gemini-proxy .
+#
+# `docker compose build gemini-proxy` is configured the same way (see docker-compose.yml).
 
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir fastapi "uvicorn[standard]" pydantic
-
-COPY main.py .
-
-EXPOSE 11437
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "11437", "--workers", "1"]
+FROM alpine:3.20
+RUN printf '%s\n' \
+  'Do not `docker build` this directory alone.' \
+  'From repo root: docker build -f docker/cli-proxy.Dockerfile --target gemini-proxy -t mirofish-gemini-proxy .' \
+  >&2 && exit 1
