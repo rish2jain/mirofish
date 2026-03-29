@@ -92,9 +92,28 @@ class LLMClient:
         return system_text, conversation
 
     def _clean_content(self, content: str) -> str:
-        """Remove <think> tags from reasoning models"""
-        content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
-        return content
+        """Remove <think>/<thinking> tags from reasoning models.
+
+        If stripping thinking blocks would leave the response empty,
+        fall back to extracting any JSON object found inside the
+        thinking block itself (the model may have placed the answer there).
+        """
+        cleaned = re.sub(r'<think(?:ing)?>[\s\S]*?</think(?:ing)?>', '', content).strip()
+        if cleaned:
+            return cleaned
+
+        # Thinking block consumed the entire response — try to salvage JSON from it
+        match = re.search(r'(\{[\s\S]*\})', content)
+        if match:
+            logger.warning(
+                "Response was entirely inside <think> tags; "
+                "extracted JSON object (%d chars) from thinking block",
+                len(match.group(1)),
+            )
+            return match.group(1).strip()
+
+        # Nothing salvageable — return original (stripped of think tags = empty)
+        return cleaned
 
     @staticmethod
     def _build_cli_prompt(
@@ -121,7 +140,7 @@ class LLMClient:
                 "You MUST respond with valid JSON only.\n"
                 "Do not include any introductory or concluding remarks.\n"
                 "Do not wrap the JSON in markdown code fences.\n"
-                "Output ONLY the raw JSON object, nothing else.\n"
+                "Place your entire JSON response inside <json_output> tags.\n"
                 "</instructions>"
             )
 
@@ -130,8 +149,17 @@ class LLMClient:
             parts.append(f"<{role.lower()}>\n{msg['content']}\n</{role.lower()}>")
 
         if wants_json:
-            # Remind at the end — no prefill (CLI doesn't support it)
-            parts.append("<reminder>Respond with the raw JSON object only. No tags, no markdown, no explanation.</reminder>")
+            parts.append(
+                "<example>\n"
+                "<json_output>\n"
+                '{"key": "value"}\n'
+                "</json_output>\n"
+                "</example>"
+            )
+            parts.append(
+                "<reminder>Place your JSON response inside <json_output> tags. "
+                "No markdown, no explanation — only the <json_output> block.</reminder>"
+            )
 
         return "\n\n".join(parts)
 
@@ -261,18 +289,22 @@ class LLMClient:
         prompt = self._build_cli_prompt(system_text, conversation, response_format)
 
         try:
-            result = subprocess.run(
-                ["claude", "-p", "--output-format", "text"],
-                input=prompt,
-                capture_output=True, text=True, timeout=120,
-                cwd="/tmp",
-            )
+            content = self._run_claude_cli_text(prompt)
 
-            if result.returncode != 0:
-                logger.error(f"Claude CLI error: {result.stderr[:200]}")
-                raise RuntimeError(f"Claude CLI failed: {result.stderr[:200]}")
+            # If --output-format text returned empty, retry with JSON format
+            # and extract the assistant text from the structured output
+            if not content:
+                logger.warning(
+                    "Claude CLI --output-format text returned empty, "
+                    "retrying with --output-format json"
+                )
+                content = self._run_claude_cli_json(prompt)
 
-            content = result.stdout.strip()
+            if not content:
+                raise RuntimeError(
+                    "Claude CLI returned empty response in both text and json modes"
+                )
+
             content = self._clean_content(content)
 
             if response_format and response_format.get("type") == "json_object":
@@ -282,6 +314,88 @@ class LLMClient:
 
         except subprocess.TimeoutExpired:
             raise RuntimeError("Claude CLI timed out after 120s")
+
+    def _run_claude_cli_text(self, prompt: str) -> str:
+        """Run Claude CLI with --output-format text and return raw stdout."""
+        result = subprocess.run(
+            ["claude", "-p", "--output-format", "text"],
+            input=prompt,
+            capture_output=True, text=True, timeout=120,
+            cwd="/tmp",
+        )
+
+        if result.returncode != 0:
+            logger.error("Claude CLI (text) error (rc=%d): %s", result.returncode, result.stderr[:300])
+            raise RuntimeError(f"Claude CLI failed: {result.stderr[:200]}")
+
+        content = result.stdout.strip()
+        if not content:
+            logger.warning(
+                "Claude CLI (text) returned empty stdout. "
+                "stderr (first 300 chars): %s",
+                result.stderr[:300] if result.stderr else "<empty>",
+            )
+        else:
+            logger.debug("Claude CLI (text) response length: %d chars", len(content))
+
+        return content
+
+    def _run_claude_cli_json(self, prompt: str) -> str:
+        """Run Claude CLI with --output-format json and extract assistant text.
+
+        The JSON format returns an array of event objects.  We look for
+        ``{"type": "assistant", "subtype": "text", ...}`` entries and
+        concatenate their ``text`` fields.
+        """
+        result = subprocess.run(
+            ["claude", "-p", "--output-format", "json"],
+            input=prompt,
+            capture_output=True, text=True, timeout=120,
+            cwd="/tmp",
+        )
+
+        if result.returncode != 0:
+            logger.error("Claude CLI (json) error (rc=%d): %s", result.returncode, result.stderr[:300])
+            raise RuntimeError(f"Claude CLI (json) failed: {result.stderr[:200]}")
+
+        raw = result.stdout.strip()
+        if not raw:
+            logger.warning("Claude CLI (json) also returned empty stdout")
+            return ""
+
+        try:
+            events = json.loads(raw)
+        except json.JSONDecodeError:
+            # Might be NDJSON (one object per line)
+            events = []
+            for line in raw.splitlines():
+                line = line.strip().rstrip(",")
+                if not line or line in ("[]", "[", "]"):
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+        if not isinstance(events, list):
+            events = [events]
+
+        # Extract assistant text blocks
+        text_parts = []
+        for evt in events:
+            if not isinstance(evt, dict):
+                continue
+            if evt.get("type") == "assistant" and evt.get("subtype") == "text":
+                text_parts.append(evt.get("text", ""))
+            # Also check for result event (some CLI versions)
+            elif evt.get("type") == "result":
+                if "result" in evt:
+                    text_parts.append(str(evt["result"]))
+
+        content = "\n".join(text_parts).strip()
+        logger.debug("Claude CLI (json) extracted %d text parts, %d chars total",
+                     len(text_parts), len(content))
+        return content
 
     def _chat_codex_cli(
         self,
