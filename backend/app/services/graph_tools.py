@@ -8,16 +8,18 @@ Core retrieval tools (optimized):
 3. QuickSearch (simple search) - Fast retrieval
 """
 
-import time
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
 
+from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
+from ..utils.retry import RetryableAPIClient
 
 logger = get_logger('mirofish.graph_tools')
 
@@ -169,10 +171,10 @@ class InsightForgeResult:
     def to_text(self) -> str:
         """Convert to detailed text format for LLM comprehension"""
         text_parts = [
-            f"## Future Prediction Deep Analysis",
+            "## Future Prediction Deep Analysis",
             f"Analysis question: {self.query}",
             f"Prediction scenario: {self.simulation_requirement}",
-            f"\n### Prediction Data Statistics",
+            "\n### Prediction Data Statistics",
             f"- Relevant prediction facts: {self.total_facts} items",
             f"- Entities involved: {self.total_entities} items",
             f"- Relationship chains: {self.total_relationships} items"
@@ -180,19 +182,19 @@ class InsightForgeResult:
 
         # Sub-queries
         if self.sub_queries:
-            text_parts.append(f"\n### Analyzed Sub-queries")
+            text_parts.append("\n### Analyzed Sub-queries")
             for i, sq in enumerate(self.sub_queries, 1):
                 text_parts.append(f"{i}. {sq}")
 
         # Semantic search results
         if self.semantic_facts:
-            text_parts.append(f"\n### [Key Facts] (Please cite these original texts in the report)")
+            text_parts.append("\n### [Key Facts] (Please cite these original texts in the report)")
             for i, fact in enumerate(self.semantic_facts, 1):
                 text_parts.append(f"{i}. \"{fact}\"")
 
         # Entity insights
         if self.entity_insights:
-            text_parts.append(f"\n### [Core Entities]")
+            text_parts.append("\n### [Core Entities]")
             for entity in self.entity_insights:
                 text_parts.append(f"- **{entity.get('name', 'Unknown')}** ({entity.get('type', 'Entity')})")
                 if entity.get('summary'):
@@ -202,7 +204,7 @@ class InsightForgeResult:
 
         # Relationship chains
         if self.relationship_chains:
-            text_parts.append(f"\n### [Relationship Chains]")
+            text_parts.append("\n### [Relationship Chains]")
             for chain in self.relationship_chains:
                 text_parts.append(f"- {chain}")
 
@@ -248,9 +250,9 @@ class PanoramaResult:
     def to_text(self) -> str:
         """Convert to text format (full version, no truncation)"""
         text_parts = [
-            f"## Broad Search Results (Future Panoramic View)",
+            "## Broad Search Results (Future Panoramic View)",
             f"Query: {self.query}",
-            f"\n### Statistics",
+            "\n### Statistics",
             f"- Total nodes: {self.total_nodes}",
             f"- Total edges: {self.total_edges}",
             f"- Currently valid facts: {self.active_count} items",
@@ -259,19 +261,19 @@ class PanoramaResult:
 
         # Currently valid facts (full output, no truncation)
         if self.active_facts:
-            text_parts.append(f"\n### [Currently Valid Facts] (Simulation result originals)")
+            text_parts.append("\n### [Currently Valid Facts] (Simulation result originals)")
             for i, fact in enumerate(self.active_facts, 1):
                 text_parts.append(f"{i}. \"{fact}\"")
 
         # Historical/expired facts (full output, no truncation)
         if self.historical_facts:
-            text_parts.append(f"\n### [Historical/Expired Facts] (Evolution process records)")
+            text_parts.append("\n### [Historical/Expired Facts] (Evolution process records)")
             for i, fact in enumerate(self.historical_facts, 1):
                 text_parts.append(f"{i}. \"{fact}\"")
 
         # Key entities (full output, no truncation)
         if self.all_nodes:
-            text_parts.append(f"\n### [Entities Involved]")
+            text_parts.append("\n### [Entities Involved]")
             for node in self.all_nodes:
                 entity_type = next((l for l in node.labels if l not in ["Entity", "Node"]), "Entity")
                 text_parts.append(f"- **{node.name}** ({entity_type})")
@@ -455,27 +457,19 @@ class GraphToolsService:
         return edge.get(key, default)
 
     def _call_with_retry(self, func, operation_name: str, max_retries: int = None):
-        """API call with retry mechanism"""
-        max_retries = max_retries or self.MAX_RETRIES
-        last_exception = None
-        delay = self.RETRY_DELAY
-
-        for attempt in range(max_retries):
-            try:
-                return func()
-            except Exception as e:
-                last_exception = e
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"{operation_name} attempt {attempt + 1} failed: {str(e)[:100]}, "
-                        f"retrying in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                    delay *= 2
-                else:
-                    logger.error(f"{operation_name} still failed after {max_retries} attempts: {str(e)}")
-
-        raise last_exception
+        """API call with retry mechanism (shared backoff via RetryableAPIClient)."""
+        n = max_retries or self.MAX_RETRIES
+        client = RetryableAPIClient(
+            max_retries=max(0, n - 1),
+            initial_delay=self.RETRY_DELAY,
+            max_delay=60.0,
+            backoff_factor=2.0,
+        )
+        try:
+            return client.call_with_retry(func, exceptions=(Exception,))
+        except Exception as e:
+            logger.error("%s still failed after %s attempts: %s", operation_name, n, e)
+            raise
 
     def search_graph(
         self,
@@ -1009,20 +1003,30 @@ class GraphToolsService:
         all_edges = []
         seen_facts = set()
 
-        for sub_query in sub_queries:
-            search_result = self.search_graph(
-                graph_id=graph_id,
-                query=sub_query,
-                limit=15,
-                scope="edges"
-            )
-
+        def _ingest_sub_search(search_result: SearchResult) -> None:
             for fact in search_result.facts:
                 if fact not in seen_facts:
                     all_facts.append(fact)
                     seen_facts.add(fact)
-
             all_edges.extend(search_result.edges)
+
+        if Config.INSIGHT_FORGE_PARALLEL_SUBQUERIES and len(sub_queries) > 1:
+            def _run_subquery_search(sq: str) -> SearchResult:
+                return self.search_graph(graph_id, sq, 15, "edges")
+
+            workers = max(1, min(Config.INSIGHT_FORGE_SUBQUERY_WORKERS, len(sub_queries)))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                for search_result in executor.map(_run_subquery_search, sub_queries):
+                    _ingest_sub_search(search_result)
+        else:
+            for sub_query in sub_queries:
+                search_result = self.search_graph(
+                    graph_id=graph_id,
+                    query=sub_query,
+                    limit=15,
+                    scope="edges",
+                )
+                _ingest_sub_search(search_result)
 
         # Also search with the original query
         main_search = self.search_graph(
@@ -1190,7 +1194,6 @@ Return the sub-question list in JSON format."""
 
         # Get all nodes
         all_nodes = self.get_all_nodes(graph_id)
-        node_map = {n.uuid: n for n in all_nodes}
         result.all_nodes = all_nodes
         result.total_nodes = len(all_nodes)
 
@@ -1206,10 +1209,6 @@ Return the sub-question list in JSON format."""
         for edge in all_edges:
             if not edge.fact:
                 continue
-
-            # Add entity names to facts
-            source_name = node_map.get(edge.source_node_uuid, NodeInfo('', '', [], '', {})).name or edge.source_node_uuid[:8]
-            target_name = node_map.get(edge.target_node_uuid, NodeInfo('', '', [], '', {})).name or edge.target_node_uuid[:8]
 
             # Determine if expired/invalidated
             is_historical = edge.is_expired or edge.is_invalid
