@@ -7,17 +7,15 @@ Uses preset scripts + LLM-powered intelligent configuration parameter generation
 import os
 import csv
 import json
-import shutil
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-from ..config import Config
 from ..utils.logger import get_logger
-from .entity_reader import EntityReader, FilteredEntities
-from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
-from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
+from .entity_reader import EntityReader
+from .oasis_profile_generator import OasisProfileGenerator
+from .simulation_config_generator import SimulationConfigGenerator
 
 logger = get_logger('mirofish.simulation')
 
@@ -509,6 +507,15 @@ class SimulationManager:
         """Get simulation state"""
         return self._load_simulation_state(simulation_id)
 
+    def update_simulation_status(self, simulation_id: str, status: SimulationStatus) -> bool:
+        """Set status and persist. Returns True if simulation state existed."""
+        state = self.get_simulation(simulation_id)
+        if not state:
+            return False
+        state.status = status
+        self._save_simulation_state(state)
+        return True
+
     def remove_simulation(self, simulation_id: str) -> Optional[SimulationState]:
         """Remove a simulation from the in-memory cache (does not delete disk files).
 
@@ -540,7 +547,6 @@ class SimulationManager:
     
     def get_profiles(self, simulation_id: str, platform: str = "reddit") -> List[Dict[str, Any]]:
         """Get simulation Agent profiles in a normalized JSON shape."""
-        import csv
 
         state = self._load_simulation_state(simulation_id)
         if not state:

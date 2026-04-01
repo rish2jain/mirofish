@@ -150,10 +150,13 @@ class SimulationIPCClient:
         
         logger.info(f"Sent IPC command: {command_type.value}, command_id={command_id}")
         
-        # Wait for response
+        # Wait for response (adaptive backoff: quick checks first, then ease CPU load)
         response_file = os.path.join(self.responses_dir, f"{command_id}.json")
         start_time = time.time()
-        
+        min_interval = max(0.05, min(poll_interval, 0.2))
+        max_interval = max(poll_interval, 1.0)
+        current_interval = min_interval
+
         while time.time() - start_time < timeout:
             if os.path.exists(response_file):
                 try:
@@ -173,7 +176,8 @@ class SimulationIPCClient:
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning(f"Failed to parse response: {e}")
             
-            time.sleep(poll_interval)
+            time.sleep(current_interval)
+            current_interval = min(max_interval, current_interval + 0.08)
         
         # Timeout
         logger.error(f"Timed out waiting for IPC response: command_id={command_id}")

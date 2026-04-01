@@ -1,6 +1,5 @@
 """Tool for building a graph from a project ontology and extracted text."""
 
-import threading
 from typing import Any, Dict, Optional
 
 from ..config import Config
@@ -12,6 +11,7 @@ from ..resources.projects import ProjectStore
 from ..services.graph_builder import GraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..utils.logger import get_logger
+from ..utils.background_tasks import BackgroundTaskRegistry
 
 logger = get_logger("mirofish.tools.build_graph")
 
@@ -169,8 +169,7 @@ class BuildGraphTool:
                     error=str(exc),
                 )
 
-        thread = threading.Thread(target=run_build, daemon=True)
-        thread.start()
+        BackgroundTaskRegistry.start(name=f"graph-build:{task_id}", target=run_build)
 
         return {
             "project_id": project_id,

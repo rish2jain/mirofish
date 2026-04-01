@@ -14,6 +14,8 @@ overly long content in a single pass:
 
 import json
 import math
+import re
+import time
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -21,7 +23,7 @@ from datetime import datetime
 from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
-from .entity_reader import EntityNode, EntityReader
+from .entity_reader import EntityNode
 
 logger = get_logger('mirofish.simulation_config')
 
@@ -437,7 +439,6 @@ class SimulationConfigGenerator:
 
     def _call_llm_with_retry(self, prompt: str, system_prompt: str) -> Dict[str, Any]:
         """LLM call with retry logic and JSON repair"""
-        import re
 
         max_attempts = 3
         last_error = None
@@ -469,7 +470,6 @@ class SimulationConfigGenerator:
             except Exception as e:
                 logger.warning(f"LLM call failed (attempt {attempt+1}): {str(e)[:80]}")
                 last_error = e
-                import time
                 time.sleep(2 * (attempt + 1))
 
         raise last_error or Exception("LLM call failed")
@@ -494,8 +494,6 @@ class SimulationConfigGenerator:
 
     def _try_fix_config_json(self, content: str) -> Optional[Dict[str, Any]]:
         """Try to fix configuration JSON"""
-        import re
-
         # Fix truncated content
         content = self._fix_truncated_json(content)
 
@@ -515,13 +513,13 @@ class SimulationConfigGenerator:
 
             try:
                 return json.loads(json_str)
-            except:
+            except Exception:
                 # Try removing all control characters
                 json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', json_str)
                 json_str = re.sub(r'\s+', ' ', json_str)
                 try:
                     return json.loads(json_str)
-                except:
+                except Exception:
                     pass
 
         return None
@@ -643,11 +641,6 @@ Field descriptions:
         entities: List[EntityNode]
     ) -> Dict[str, Any]:
         """Generate event configuration"""
-
-        # Get available entity type list for LLM reference
-        entity_types_available = list(set(
-            e.get_entity_type() or "Unknown" for e in entities
-        ))
 
         # List representative entity names for each type
         type_examples = {}

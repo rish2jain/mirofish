@@ -6,22 +6,21 @@ Runs simulations in the background and records each Agent's actions, with real-t
 import os
 import sys
 import json
+import tempfile
 import time
-import asyncio
 import threading
 import subprocess
 import signal
 import atexit
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from queue import Queue
 
-from ..config import Config
 from ..utils.logger import get_logger
 from .graph_memory_updater import GraphMemoryManager
-from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
+from .simulation_ipc import SimulationIPCClient
 
 logger = get_logger('mirofish.simulation_runner')
 
@@ -225,17 +224,21 @@ class SimulationRunner:
     
     # Graph memory update configuration
     _graph_memory_enabled: Dict[str, bool] = {}  # simulation_id -> enabled
+
+    # Protects class-level dicts mutated from Flask request threads and monitor threads
+    _runner_lock = threading.RLock()
     
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
         """Get run status"""
-        if simulation_id in cls._run_states:
-            return cls._run_states[simulation_id]
-        
-        # Try to load from file
+        with cls._runner_lock:
+            if simulation_id in cls._run_states:
+                return cls._run_states[simulation_id]
+        # Try to load from file (I/O outside lock)
         state = cls._load_run_state(simulation_id)
         if state:
-            cls._run_states[simulation_id] = state
+            with cls._runner_lock:
+                cls._run_states[simulation_id] = state
         return state
     
     @classmethod
@@ -296,17 +299,47 @@ class SimulationRunner:
     
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
-        """Save run status to file"""
+        """Persist run status to disk, then update the in-memory cache.
+
+        All filesystem work runs without ``_runner_lock`` to avoid blocking other
+        threads; only ``cls._run_states`` is updated under the lock. The JSON
+        file is written via a temp file and ``os.replace`` so readers never see
+        a partial ``run_state.json``.
+        """
         sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         state_file = os.path.join(sim_dir, "run_state.json")
-        
         data = state.to_detail_dict()
-        
-        with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        cls._run_states[state.simulation_id] = state
+
+        tmp_path: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".tmp",
+                dir=sim_dir,
+                delete=False,
+            ) as f:
+                tmp_path = f.name
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            if os.path.isfile(state_file):
+                try:
+                    os.chmod(tmp_path, os.stat(state_file).st_mode & 0o777)
+                except OSError:
+                    pass
+            os.replace(tmp_path, state_file)
+            tmp_path = None
+        finally:
+            if tmp_path and os.path.isfile(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        with cls._runner_lock:
+            cls._run_states[state.simulation_id] = state
     
     @classmethod
     def start_simulation(
@@ -340,7 +373,7 @@ class SimulationRunner:
         config_path = os.path.join(sim_dir, "simulation_config.json")
         
         if not os.path.exists(config_path):
-            raise ValueError(f"Simulation configuration does not exist, please call /prepare first")
+            raise ValueError("Simulation configuration does not exist, please call /prepare first")
         
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -375,13 +408,16 @@ class SimulationRunner:
             
             try:
                 GraphMemoryManager.create_updater(simulation_id, graph_id)
-                cls._graph_memory_enabled[simulation_id] = True
+                with cls._runner_lock:
+                    cls._graph_memory_enabled[simulation_id] = True
                 logger.info(f"Graph memory update enabled: simulation_id={simulation_id}, graph_id={graph_id}")
             except Exception as e:
                 logger.error(f"Failed to create graph memory updater: {e}")
-                cls._graph_memory_enabled[simulation_id] = False
+                with cls._runner_lock:
+                    cls._graph_memory_enabled[simulation_id] = False
         else:
-            cls._graph_memory_enabled[simulation_id] = False
+            with cls._runner_lock:
+                cls._graph_memory_enabled[simulation_id] = False
         
         # Determine which script to run (scripts are in backend/scripts/ directory)
         if platform == "twitter":
@@ -402,7 +438,8 @@ class SimulationRunner:
         
         # Create action queue
         action_queue = Queue()
-        cls._action_queues[simulation_id] = action_queue
+        with cls._runner_lock:
+            cls._action_queues[simulation_id] = action_queue
         
         # Start simulation process
         try:
@@ -447,12 +484,13 @@ class SimulationRunner:
             )
             
             # Save file handles for later cleanup
-            cls._stdout_files[simulation_id] = main_log_file
-            cls._stderr_files[simulation_id] = None  # Separate stderr no longer needed
+            with cls._runner_lock:
+                cls._stdout_files[simulation_id] = main_log_file
+                cls._stderr_files[simulation_id] = None  # Separate stderr no longer needed
+                state.process_pid = process.pid
+                cls._processes[simulation_id] = process
             
-            state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING
-            cls._processes[simulation_id] = process
             cls._save_run_state(state)
             
             # Start monitoring thread
@@ -462,7 +500,8 @@ class SimulationRunner:
                 daemon=True
             )
             monitor_thread.start()
-            cls._monitor_threads[simulation_id] = monitor_thread
+            with cls._runner_lock:
+                cls._monitor_threads[simulation_id] = monitor_thread
             
             logger.info(f"Simulation started successfully: {simulation_id}, pid={process.pid}, platform={platform}")
             
@@ -483,7 +522,8 @@ class SimulationRunner:
         twitter_actions_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         reddit_actions_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
         
-        process = cls._processes.get(simulation_id)
+        with cls._runner_lock:
+            process = cls._processes.get(simulation_id)
         state = cls.get_run_state(simulation_id)
         
         if not process or not state:
@@ -491,9 +531,12 @@ class SimulationRunner:
         
         twitter_position = 0
         reddit_position = 0
+        poll_sleep_s = 2.0
         
         try:
             while process.poll() is None:  # Process is still running
+                tw_before = twitter_position
+                rd_before = reddit_position
                 # Read Twitter action log
                 if os.path.exists(twitter_actions_log):
                     twitter_position = cls._read_action_log(
@@ -508,7 +551,11 @@ class SimulationRunner:
                 
                 # Update state
                 cls._save_run_state(state)
-                time.sleep(2)
+                if twitter_position == tw_before and reddit_position == rd_before:
+                    poll_sleep_s = min(10.0, poll_sleep_s + 0.5)
+                else:
+                    poll_sleep_s = 2.0
+                time.sleep(poll_sleep_s)
             
             # After process ends, read logs one final time
             if os.path.exists(twitter_actions_log):
@@ -540,40 +587,90 @@ class SimulationRunner:
             state.twitter_running = False
             state.reddit_running = False
             cls._save_run_state(state)
+            cls._notify_simulation_webhooks(simulation_id, state)
             
         except Exception as e:
             logger.error(f"Monitor thread exception: {simulation_id}, error={str(e)}")
             state.runner_status = RunnerStatus.FAILED
             state.error = str(e)
             cls._save_run_state(state)
+            cls._notify_simulation_webhooks(simulation_id, state)
         
         finally:
             # Stop graph memory updater
-            if cls._graph_memory_enabled.get(simulation_id, False):
+            with cls._runner_lock:
+                graph_was_enabled = cls._graph_memory_enabled.get(simulation_id, False)
+            if graph_was_enabled:
                 try:
                     GraphMemoryManager.stop_updater(simulation_id)
                     logger.info(f"Graph memory update stopped: simulation_id={simulation_id}")
                 except Exception as e:
                     logger.error(f"Failed to stop graph memory updater: {e}")
-                cls._graph_memory_enabled.pop(simulation_id, None)
+                with cls._runner_lock:
+                    cls._graph_memory_enabled.pop(simulation_id, None)
 
             # Clean up process resources
-            cls._processes.pop(simulation_id, None)
-            cls._action_queues.pop(simulation_id, None)
-            
-            # Close log file handles
-            if simulation_id in cls._stdout_files:
+            stdout_f = None
+            stderr_f = None
+            with cls._runner_lock:
+                cls._processes.pop(simulation_id, None)
+                cls._action_queues.pop(simulation_id, None)
+                if simulation_id in cls._stdout_files:
+                    stdout_f = cls._stdout_files.pop(simulation_id, None)
+                if simulation_id in cls._stderr_files:
+                    stderr_f = cls._stderr_files.pop(simulation_id, None)
+            if stdout_f:
                 try:
-                    cls._stdout_files[simulation_id].close()
+                    stdout_f.close()
                 except Exception:
                     pass
-                cls._stdout_files.pop(simulation_id, None)
-            if simulation_id in cls._stderr_files and cls._stderr_files[simulation_id]:
+            if stderr_f:
                 try:
-                    cls._stderr_files[simulation_id].close()
+                    stderr_f.close()
                 except Exception:
                     pass
-                cls._stderr_files.pop(simulation_id, None)
+
+            cls._evict_inactive_states_if_needed()
+    
+    @classmethod
+    def _notify_simulation_webhooks(cls, simulation_id: str, state: "SimulationRunState") -> None:
+        try:
+            from .webhook_service import dispatch_event
+
+            rs = state.runner_status
+            rs_val = rs.value if hasattr(rs, "value") else str(rs)
+            payload = {
+                "simulation_id": simulation_id,
+                "runner_status": rs_val,
+                "completed_at": getattr(state, "completed_at", None),
+                "error": getattr(state, "error", None),
+            }
+            if rs == RunnerStatus.COMPLETED:
+                dispatch_event("simulation.completed", payload)
+            elif rs == RunnerStatus.FAILED:
+                dispatch_event("simulation.failed", payload)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Webhook notification skipped: %s", exc)
+
+    @classmethod
+    def _evict_inactive_states_if_needed(cls, limit: int = 120) -> None:
+        """Trim in-memory run states for completed simulations when the cache grows large."""
+        with cls._runner_lock:
+            if len(cls._run_states) <= limit:
+                return
+            inactive: List[str] = []
+            for sid, st in cls._run_states.items():
+                if sid in cls._processes:
+                    continue
+                if st.runner_status in (
+                    RunnerStatus.COMPLETED,
+                    RunnerStatus.FAILED,
+                    RunnerStatus.STOPPED,
+                ):
+                    inactive.append(sid)
+            overflow = len(cls._run_states) - limit
+            for sid in inactive[: max(0, overflow)]:
+                cls._run_states.pop(sid, None)
     
     @classmethod
     def _read_action_log(
@@ -596,7 +693,8 @@ class SimulationRunner:
             New read position
         """
         # Check if graph memory update is enabled
-        graph_memory_enabled = cls._graph_memory_enabled.get(state.simulation_id, False)
+        with cls._runner_lock:
+            graph_memory_enabled = cls._graph_memory_enabled.get(state.simulation_id, False)
         graph_updater = None
         if graph_memory_enabled:
             graph_updater = GraphMemoryManager.get_updater(state.simulation_id)
@@ -633,6 +731,7 @@ class SimulationRunner:
                                         state.runner_status = RunnerStatus.COMPLETED
                                         state.completed_at = datetime.now().isoformat()
                                         logger.info(f"All platform simulations completed: {state.simulation_id}")
+                                        cls._notify_simulation_webhooks(state.simulation_id, state)
                                 
                                 # Update round information (from round_end event)
                                 elif event_type == "round_end":
@@ -681,7 +780,7 @@ class SimulationRunner:
                         except json.JSONDecodeError:
                             pass
                 return f.tell()
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning(f"Failed to read action log: {log_path}, error={e}")
             return position
     
@@ -782,7 +881,8 @@ class SimulationRunner:
         cls._save_run_state(state)
         
         # Terminate process
-        process = cls._processes.get(simulation_id)
+        with cls._runner_lock:
+            process = cls._processes.get(simulation_id)
         if process and process.poll() is None:
             try:
                 cls._terminate_process(process, simulation_id)
@@ -805,13 +905,16 @@ class SimulationRunner:
         cls._save_run_state(state)
         
         # Stop graph memory updater
-        if cls._graph_memory_enabled.get(simulation_id, False):
+        with cls._runner_lock:
+            had_graph = cls._graph_memory_enabled.get(simulation_id, False)
+        if had_graph:
             try:
                 GraphMemoryManager.stop_updater(simulation_id)
                 logger.info(f"Graph memory update stopped: simulation_id={simulation_id}")
             except Exception as e:
                 logger.error(f"Failed to stop graph memory updater: {e}")
-            cls._graph_memory_enabled.pop(simulation_id, None)
+            with cls._runner_lock:
+                cls._graph_memory_enabled.pop(simulation_id, None)
 
         logger.info(f"Simulation stopped: {simulation_id}")
         return state
@@ -1125,7 +1228,6 @@ class SimulationRunner:
         Returns:
             Cleanup result information
         """
-        import shutil
         
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         
@@ -1172,8 +1274,8 @@ class SimulationRunner:
                         errors.append(f"Failed to delete {dir_name}/actions.jsonl: {str(e)}")
         
         # Clean up in-memory run state
-        if simulation_id in cls._run_states:
-            del cls._run_states[simulation_id]
+        with cls._runner_lock:
+            cls._run_states.pop(simulation_id, None)
         
         logger.info(f"Simulation log cleanup completed: {simulation_id}, deleted files: {cleaned_files}")
         
@@ -1199,8 +1301,9 @@ class SimulationRunner:
         cls._cleanup_done = True
         
         # Check if there is anything to clean up (avoid printing useless logs for empty processes)
-        has_processes = bool(cls._processes)
-        has_updaters = bool(cls._graph_memory_enabled)
+        with cls._runner_lock:
+            has_processes = bool(cls._processes)
+            has_updaters = bool(cls._graph_memory_enabled)
         
         if not has_processes and not has_updaters:
             return  # Nothing to clean up, return silently
@@ -1212,10 +1315,12 @@ class SimulationRunner:
             GraphMemoryManager.stop_all()
         except Exception as e:
             logger.error(f"Failed to stop graph memory updaters: {e}")
-        cls._graph_memory_enabled.clear()
+        with cls._runner_lock:
+            cls._graph_memory_enabled.clear()
 
         # Copy dict to avoid modification during iteration
-        processes = list(cls._processes.items())
+        with cls._runner_lock:
+            processes = list(cls._processes.items())
         
         for simulation_id, process in processes:
             try:
@@ -1265,25 +1370,27 @@ class SimulationRunner:
                 logger.error(f"Failed to clean up process: {simulation_id}, error={e}")
         
         # Clean up file handles
-        for simulation_id, file_handle in list(cls._stdout_files.items()):
+        with cls._runner_lock:
+            stdout_items = list(cls._stdout_files.items())
+            stderr_items = list(cls._stderr_files.items())
+        for simulation_id, file_handle in stdout_items:
             try:
                 if file_handle:
                     file_handle.close()
             except Exception:
                 pass
-        cls._stdout_files.clear()
-        
-        for simulation_id, file_handle in list(cls._stderr_files.items()):
+        for simulation_id, file_handle in stderr_items:
             try:
                 if file_handle:
                     file_handle.close()
             except Exception:
                 pass
-        cls._stderr_files.clear()
-        
-        # Clean up in-memory state
-        cls._processes.clear()
-        cls._action_queues.clear()
+        with cls._runner_lock:
+            cls._stdout_files.clear()
+            cls._stderr_files.clear()
+            cls._processes.clear()
+            cls._action_queues.clear()
+            cls._monitor_threads.clear()
         
         logger.info("Simulation process cleanup completed")
     
@@ -1322,7 +1429,9 @@ class SimulationRunner:
         def cleanup_handler(signum=None, frame=None):
             """Signal handler: clean up simulation processes first, then call the original handler"""
             # Only print logs when there are processes to clean up
-            if cls._processes or cls._graph_memory_enabled:
+            with cls._runner_lock:
+                has_work = bool(cls._processes) or bool(cls._graph_memory_enabled)
+            if has_work:
                 logger.info(f"Received signal {signum}, starting cleanup...")
             cls.cleanup_all_simulations()
             
@@ -1365,8 +1474,10 @@ class SimulationRunner:
         """
         Get a list of all currently running simulation IDs
         """
+        with cls._runner_lock:
+            proc_items = list(cls._processes.items())
         running = []
-        for sim_id, process in cls._processes.items():
+        for sim_id, process in proc_items:
             if process.poll() is None:
                 running.append(sim_id)
         return running

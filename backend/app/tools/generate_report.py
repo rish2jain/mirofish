@@ -1,6 +1,5 @@
 """Tool for report generation."""
 
-import threading
 import uuid
 from typing import Any, Dict, Optional
 
@@ -10,6 +9,7 @@ from ..resources.projects import ProjectStore
 from ..resources.reports import ReportStore
 from ..resources.simulations import SimulationStore
 from ..services.report_agent import ReportAgent, ReportStatus
+from ..utils.background_tasks import BackgroundTaskRegistry
 from ..utils.logger import get_logger
 
 logger = get_logger("mirofish.tools.generate_report")
@@ -147,8 +147,7 @@ class GenerateReportTool:
                 logger.error(f"Report generation failed: {exc}")
                 self.task_manager.fail_task(task_id, str(exc))
 
-        thread = threading.Thread(target=run_generate, daemon=True)
-        thread.start()
+        BackgroundTaskRegistry.start(name=f"report-generate:{task_id}", target=run_generate)
 
         return {
             "simulation_id": simulation_id,
