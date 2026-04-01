@@ -44,6 +44,14 @@ export const getReport = (reportId) => {
 }
 
 /**
+ * Compare two completed reports (A/B scenario diff).
+ * @param {{ report_id_a: string, report_id_b: string }} body
+ */
+export const compareReports = (body) => {
+  return service.post('/api/report/compare', body)
+}
+
+/**
  * Chat with Report Agent
  * @param {Object} data - { simulation_id, message, chat_history? }
  */

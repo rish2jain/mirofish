@@ -1,3 +1,5 @@
+// @ts-check
+/** Simulation and OASIS run API (axios). */
 import service, { requestWithRetry } from './index'
 
 /**
@@ -161,11 +163,13 @@ export const closeSimulationEnv = (data) => {
 }
 
 /**
- * Get simulation environment status
- * @param {Object} data - { simulation_id }
+ * Get simulation environment status (GET; query param simulation_id).
+ * @param {{ simulation_id: string } | string} dataOrId - object or simulation id string
  */
-export const getEnvStatus = (data) => {
-  return service.post('/api/simulation/env-status', data)
+export const getEnvStatus = (dataOrId) => {
+  const simulation_id =
+    typeof dataOrId === 'string' ? dataOrId : dataOrId?.simulation_id
+  return service.get('/api/simulation/env-status', { params: { simulation_id } })
 }
 
 /**
@@ -183,4 +187,20 @@ export const interviewAgents = (data) => {
  */
 export const getSimulationHistory = (limit = 20) => {
   return service.get('/api/simulation/history', { params: { limit } })
+}
+
+/**
+ * Batch create simulations (optional Bearer MIROFISH_API_KEY when server sets it)
+ * @param {Array} items - list of { project_id, graph_id?, enable_twitter?, enable_reddit? }
+ */
+export const batchCreateSimulations = (items, headers = {}) => {
+  return service.post('/api/simulation/batch/create', { items }, { headers })
+}
+
+/**
+ * Compare two simulations by state, timeline, top agents, and recent posts.
+ * @param {{ simulation_id_a: string, simulation_id_b: string }} body
+ */
+export const compareSimulations = (body) => {
+  return service.post('/api/simulation/compare', body)
 }

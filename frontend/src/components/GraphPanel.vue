@@ -4,19 +4,73 @@
       <span class="panel-title">Graph Relationship Visualization</span>
       <!-- Top Toolbar (Internal Top Right) -->
       <div class="header-tools">
-        <button class="tool-btn" @click="$emit('refresh')" :disabled="loading" title="Refresh Graph">
-          <span class="icon-refresh" :class="{ 'spinning': loading }">↻</span>
+        <button type="button" class="tool-btn" @click="$emit('refresh')" :disabled="loading" title="Refresh Graph" aria-label="Refresh graph">
+          <span class="icon-refresh" :class="{ 'spinning': loading }" aria-hidden="true">↻</span>
           <span class="btn-text">Refresh</span>
         </button>
-        <button class="tool-btn" @click="$emit('toggle-maximize')" title="Maximize/Restore">
-          <span class="icon-maximize">⛶</span>
+        <button type="button" class="tool-btn" @click="$emit('toggle-maximize')" title="Maximize/Restore" aria-label="Maximize or restore graph panel">
+          <span class="icon-maximize" aria-hidden="true">⛶</span>
+        </button>
+        <input
+          v-if="graphData"
+          v-model="graphFilterInput"
+          type="search"
+          class="graph-filter-input"
+          placeholder="Filter nodes…"
+          aria-label="Filter graph nodes by name or type"
+          autocomplete="off"
+        />
+        <button
+          v-if="graphQueryId"
+          type="button"
+          class="tool-btn"
+          title="Read-only Cypher (Kuzu)"
+          aria-label="Open Cypher query dialog"
+          @click="showQuery = true"
+        >
+          Query
         </button>
       </div>
     </div>
     
+    <div
+      v-if="showQuery"
+      class="query-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Cypher query"
+      tabindex="-1"
+      @click.self="showQuery = false"
+      @keydown="onQueryKeydown"
+    >
+      <div class="query-modal">
+        <div class="query-modal-head">
+          <span>Read-only Cypher</span>
+          <button type="button" class="query-close" aria-label="Close" @click="showQuery = false">×</button>
+        </div>
+        <p class="query-hint"><code>graph_id:</code> {{ graphQueryId }}</p>
+        <textarea
+          ref="queryTextarea"
+          v-model="cypherText"
+          class="query-ta"
+          rows="6"
+          spellcheck="false"
+          aria-label="Cypher query"
+        />
+        <div class="query-actions">
+          <button type="button" class="tool-btn primary" :disabled="cypherBusy" @click="runCypher">
+            {{ cypherBusy ? 'Running…' : 'Run' }}
+          </button>
+        </div>
+        <pre v-if="cypherError" class="query-err">{{ cypherError }}</pre>
+        <pre v-if="cypherOutput" class="query-out">{{ cypherOutput }}</pre>
+      </div>
+    </div>
+
     <div class="graph-container" ref="graphContainer">
       <!-- Graph Visualization -->
       <div v-if="graphData" class="graph-view">
+        <div v-if="graphTruncationMessage" class="graph-cap-hint" role="status">{{ graphTruncationMessage }}</div>
         <svg ref="graphSvg" class="graph-svg"></svg>
         
         <!-- Building/Simulating Hint -->
@@ -40,7 +94,7 @@
             </svg>
           </div>
           <span class="hint-text">Some content is still being processed. We recommend manually refreshing the graph shortly.</span>
-          <button class="hint-close-btn" @click="dismissFinishedHint" title="Close hint">
+          <button type="button" class="hint-close-btn" @click="dismissFinishedHint" title="Close hint" aria-label="Dismiss simulation finished hint">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -55,7 +109,17 @@
             <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: '#fff' }">
               {{ selectedItem.entityType }}
             </span>
-            <button class="detail-close" @click="closeDetailPanel">×</button>
+            <button
+              v-if="selectedItem.type === 'node'"
+              type="button"
+              class="detail-focus-btn"
+              title="Center graph on this node"
+              aria-label="Center graph on this node"
+              @click="focusSelectedGraphNode"
+            >
+              Center
+            </button>
+            <button type="button" class="detail-close" aria-label="Close details" @click="closeDetailPanel">×</button>
           </div>
           
           <!-- Node details -->
@@ -238,6 +302,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import * as d3 from 'd3'
+import { graphCypherQuery } from '../api/graph'
+import { buildGraphLayout, isSubsetSet, setsEqual, edgeKeyForLayout } from '../utils/graphLayout'
 
 const props = defineProps({
   graphData: Object,
@@ -255,6 +321,123 @@ const showEdgeLabels = ref(true) // show edge labels by default
 const expandedSelfLoops = ref(new Set()) // expanded self-loop items
 const showSimulationFinishedHint = ref(false) // post-simulation hint
 const wasSimulating = ref(false) // track whether was simulating before
+const graphTruncationMessage = ref('')
+const GRAPH_NODE_CAP = 500
+
+const showQuery = ref(false)
+const queryTextarea = ref(null)
+
+const onQueryKeydown = (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    showQuery.value = false
+  }
+}
+
+watch(showQuery, (open) => {
+  if (open) {
+    nextTick(() => queryTextarea.value?.focus())
+  }
+})
+
+const cypherText = ref('MATCH (n:Node) RETURN n.id, n.name, n.label LIMIT 25')
+const cypherBusy = ref(false)
+const cypherError = ref('')
+const cypherOutput = ref('')
+const graphQueryId = computed(() => props.graphData?.graph_id || null)
+
+const graphFilterInput = ref('')
+const graphFilterDebounced = ref('')
+let graphFilterDebounceTimer = null
+
+watch(graphFilterInput, () => {
+  if (graphFilterDebounceTimer) clearTimeout(graphFilterDebounceTimer)
+  graphFilterDebounceTimer = setTimeout(() => {
+    graphFilterDebounceTimer = null
+    graphFilterDebounced.value = graphFilterInput.value
+  }, 175)
+})
+
+const edgeKey = edgeKeyForLayout
+
+const nodeMatchesFilter = (d, q) => {
+  if (!q) return true
+  const name = String(d.name || '').toLowerCase()
+  const typ = String(d.type || '').toLowerCase()
+  return name.includes(q) || typ.includes(q)
+}
+
+const applyGraphNodeFilter = () => {
+  if (!graphSvg.value) return
+  const q = graphFilterDebounced.value.trim().toLowerCase()
+  const svg = d3.select(graphSvg.value)
+  svg.selectAll('circle.graph-node').each(function (d) {
+    if (!d) return
+    const ok = nodeMatchesFilter(d, q)
+    d3.select(this).style('opacity', ok ? 1 : 0.12)
+  })
+  svg.selectAll('text.graph-node-label').each(function (d) {
+    if (!d) return
+    const ok = nodeMatchesFilter(d, q)
+    d3.select(this).style('opacity', ok ? 1 : 0.12)
+  })
+  const edgeVisible = (d) => {
+    if (!q) return true
+    const src = typeof d.source === 'object' ? d.source : null
+    const tgt = typeof d.target === 'object' ? d.target : null
+    if (!src || !tgt) return true
+    return nodeMatchesFilter(src, q) && nodeMatchesFilter(tgt, q)
+  }
+  svg.selectAll('path.graph-link').each(function (d) {
+    if (!d) return
+    const ok = edgeVisible(d)
+    d3.select(this).style('opacity', ok ? 1 : 0.08)
+  })
+  svg.selectAll('rect.graph-link-label-bg').each(function (d) {
+    if (!d) return
+    d3.select(this).style('opacity', edgeVisible(d) ? 1 : 0.08)
+  })
+  svg.selectAll('text.graph-link-label').each(function (d) {
+    if (!d) return
+    d3.select(this).style('opacity', edgeVisible(d) ? 1 : 0.08)
+  })
+}
+
+watch(graphFilterDebounced, () => {
+  nextTick(() => applyGraphNodeFilter())
+})
+
+const runCypher = async () => {
+  const q = (cypherText.value || '').trim()
+  if (!graphQueryId.value) {
+    cypherError.value = 'Load a graph before running a Cypher query.'
+    return
+  }
+  if (!q) {
+    cypherError.value = 'Enter a Cypher query to run.'
+    return
+  }
+
+  cypherBusy.value = true
+  cypherError.value = ''
+  cypherOutput.value = ''
+  try {
+    const res = await graphCypherQuery({
+      graph_id: graphQueryId.value,
+      query: q,
+      max_rows: 200
+    })
+    if (res.success) {
+      cypherOutput.value = JSON.stringify(res.data, null, 2)
+    } else {
+      cypherError.value = res.error || 'Query failed'
+    }
+  } catch (e) {
+    cypherError.value = e.message || String(e)
+  } finally {
+    cypherBusy.value = false
+  }
+}
 
 // Dismiss simulation finished hint
 const dismissFinishedHint = () => {
@@ -324,178 +507,165 @@ const closeDetailPanel = () => {
 let currentSimulation = null
 let linkLabelsRef = null
 let linkLabelBgRef = null
+let lastLayoutGraphId = null
+let lastNodeIdSet = null
+let lastEdgeFpSet = null
+
+const focusSelectedGraphNode = () => {
+  if (!selectedItem.value || selectedItem.value.type !== 'node' || !graphSvg.value || !currentSimulation) return
+  const uuid = selectedItem.value.data?.uuid
+  if (!uuid || !graphContainer.value) return
+  const simNode = currentSimulation.nodes().find((n) => n.id === uuid)
+  if (simNode == null || simNode.x == null || simNode.y == null) return
+  const w = graphContainer.value.clientWidth
+  const h = graphContainer.value.clientHeight
+  const svg = d3.select(graphSvg.value)
+  const z = svg.property('_mfZoom')
+  if (!z) return
+  const scale = 1.65
+  const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(scale).translate(-simNode.x, -simNode.y)
+  svg.transition().duration(600).call(z.transform, t)
+}
 
 const renderGraph = () => {
   if (!graphSvg.value || !props.graphData) return
-  
-  // Stop previous simulation
-  if (currentSimulation) {
-    currentSimulation.stop()
+
+  const model = buildGraphLayout(props.graphData, entityTypes.value, GRAPH_NODE_CAP)
+  if (!model) {
+    graphTruncationMessage.value = ''
+    lastLayoutGraphId = null
+    lastNodeIdSet = null
+    lastEdgeFpSet = null
+    return
   }
-  
+
+  graphTruncationMessage.value = model.truncated
+    ? `Showing ${GRAPH_NODE_CAP} of ${props.graphData.nodes.length} nodes for performance.`
+    : ''
+
+  if (
+    lastLayoutGraphId === model.graphId &&
+    lastNodeIdSet &&
+    lastEdgeFpSet &&
+    setsEqual(lastNodeIdSet, model.nodeIdSet) &&
+    setsEqual(lastEdgeFpSet, model.edgeFpSet)
+  ) {
+    return
+  }
+
+  const { graphId, nodes, edges, getColor } = model
   const container = graphContainer.value
   const width = container.clientWidth
   const height = container.clientHeight
-  
+
+  let useIncremental =
+    lastLayoutGraphId === graphId &&
+    lastNodeIdSet &&
+    lastEdgeFpSet &&
+    currentSimulation &&
+    isSubsetSet(lastNodeIdSet, model.nodeIdSet) &&
+    isSubsetSet(lastEdgeFpSet, model.edgeFpSet) &&
+    (model.nodeIdSet.size > lastNodeIdSet.size || model.edgeFpSet.size > lastEdgeFpSet.size)
+
+  if (!useIncremental && currentSimulation) {
+    currentSimulation.stop()
+    currentSimulation = null
+  }
+
   const svg = d3.select(graphSvg.value)
     .attr('width', width)
     .attr('height', height)
     .attr('viewBox', `0 0 ${width} ${height}`)
-    
-  svg.selectAll('*').remove()
-  
-  const nodesData = props.graphData.nodes || []
-  const edgesData = props.graphData.edges || []
-  
-  if (nodesData.length === 0) return
 
-  // Prep data
-  const nodeMap = {}
-  nodesData.forEach(n => nodeMap[n.uuid] = n)
-  
-  const nodes = nodesData.map(n => ({
-    id: n.uuid,
-    name: n.name || 'Unnamed',
-    type: n.labels?.find(l => l !== 'Entity') || 'Entity',
-    rawData: n
-  }))
-  
-  const nodeIds = new Set(nodes.map(n => n.id))
-  
-  // Process edge data, compute edge count and indices between same node pairs
-  const edgePairCount = {}
-  const selfLoopEdges = {} // Self-loop edges grouped by node
-  const tempEdges = edgesData
-    .filter(e => nodeIds.has(e.source_node_uuid) && nodeIds.has(e.target_node_uuid))
-  
-  // Count edges between each node pair, collect self-loop edges
-  tempEdges.forEach(e => {
-    if (e.source_node_uuid === e.target_node_uuid) {
-      // Self-loop - collect into array
-      if (!selfLoopEdges[e.source_node_uuid]) {
-        selfLoopEdges[e.source_node_uuid] = []
-      }
-      selfLoopEdges[e.source_node_uuid].push({
-        ...e,
-        source_name: nodeMap[e.source_node_uuid]?.name,
-        target_name: nodeMap[e.target_node_uuid]?.name
+  let rootG = svg.select('g.zoom-root')
+  if (rootG.empty()) {
+    rootG = svg.append('g').attr('class', 'zoom-root')
+    const z = d3.zoom()
+      .extent([[0, 0], [width, height]])
+      .scaleExtent([0.1, 4])
+      .on('zoom', (event) => {
+        rootG.attr('transform', event.transform)
       })
-    } else {
-      const pairKey = [e.source_node_uuid, e.target_node_uuid].sort().join('_')
-      edgePairCount[pairKey] = (edgePairCount[pairKey] || 0) + 1
+    svg.property('_mfZoom', z)
+    svg.call(z)
+  } else {
+    const z = svg.property('_mfZoom')
+    if (z) {
+      z.extent([[0, 0], [width, height]])
+      svg.call(z)
     }
-  })
-  
-  // Track current edge index for each node pair
-  const edgePairIndex = {}
-  const processedSelfLoopNodes = new Set() // Already processed self-loop nodes
-  
-  const edges = []
-  
-  tempEdges.forEach(e => {
-    const isSelfLoop = e.source_node_uuid === e.target_node_uuid
-    
-    if (isSelfLoop) {
-      // Self-loop edges - only add one merged self-loop per node
-      if (processedSelfLoopNodes.has(e.source_node_uuid)) {
-        return // Already processed, skip
-      }
-      processedSelfLoopNodes.add(e.source_node_uuid)
-      
-      const allSelfLoops = selfLoopEdges[e.source_node_uuid]
-      const nodeName = nodeMap[e.source_node_uuid]?.name || 'Unknown'
-      
-      edges.push({
-        source: e.source_node_uuid,
-        target: e.target_node_uuid,
-        type: 'SELF_LOOP',
-        name: `Self Relations (${allSelfLoops.length})`,
-        curvature: 0,
-        isSelfLoop: true,
-        rawData: {
-          isSelfLoopGroup: true,
-          source_name: nodeName,
-          target_name: nodeName,
-          selfLoopCount: allSelfLoops.length,
-          selfLoopEdges: allSelfLoops // Store all self-loop edge details
-        }
-      })
-      return
+  }
+
+  let g
+  if (useIncremental) {
+    g = rootG.select('g.chart-layer')
+    if (g.empty()) {
+      useIncremental = false
     }
-    
-    const pairKey = [e.source_node_uuid, e.target_node_uuid].sort().join('_')
-    const totalCount = edgePairCount[pairKey]
-    const currentIndex = edgePairIndex[pairKey] || 0
-    edgePairIndex[pairKey] = currentIndex + 1
-    
-    // Check if edge direction matches normalized direction (source UUID < target UUID)
-    const isReversed = e.source_node_uuid > e.target_node_uuid
-    
-    // Calculate curvature: spread out for multiple edges, straight line for single edge
-    let curvature = 0
-    if (totalCount > 1) {
-      // Evenly distribute curvature, ensure clear distinction
-      // Curvature range increases with edge count, more edges = wider range
-      const curvatureRange = Math.min(1.2, 0.6 + totalCount * 0.15)
-      curvature = ((currentIndex / (totalCount - 1)) - 0.5) * curvatureRange * 2
-      
-      // If edge direction is opposite to normalized direction, flip curvature
-      // This ensures all edges are distributed in the same reference frame, preventing overlap due to different directions
-      if (isReversed) {
-        curvature = -curvature
-      }
-    }
-    
-    edges.push({
-      source: e.source_node_uuid,
-      target: e.target_node_uuid,
-      type: e.fact_type || e.name || 'RELATED',
-      name: e.name || e.fact_type || 'RELATED',
-      curvature,
-      isSelfLoop: false,
-      pairIndex: currentIndex,
-      pairTotal: totalCount,
-      rawData: {
-        ...e,
-        source_name: nodeMap[e.source_node_uuid]?.name,
-        target_name: nodeMap[e.target_node_uuid]?.name
+  }
+  if (!useIncremental) {
+    rootG.selectAll('g.chart-layer').remove()
+    g = rootG.append('g').attr('class', 'chart-layer')
+  }
+
+  if (useIncremental) {
+    const pos = new Map(currentSimulation.nodes().map((n) => [n.id, n]))
+    nodes.forEach((n) => {
+      const p = pos.get(n.id)
+      if (p && p.x != null && p.y != null) {
+        n.x = p.x
+        n.y = p.y
+        n.vx = p.vx
+        n.vy = p.vy
+      } else {
+        n.x = width / 2 + (Math.random() - 0.5) * 48
+        n.y = height / 2 + (Math.random() - 0.5) * 48
       }
     })
-  })
-    
-  // Color scale
-  const colorMap = {}
-  entityTypes.value.forEach(t => colorMap[t.name] = t.color)
-  const getColor = (type) => colorMap[type] || '#999'
+  }
 
-  // Simulation - dynamically adjust node spacing based on edge count
-  const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(edges).id(d => d.id).distance(d => {
-      // Dynamically adjust distance based on edge count between node pair
-      // Base distance 150, add 40 per additional edge
-      const baseDistance = 150
-      const edgeCount = d.pairTotal || 1
-      return baseDistance + (edgeCount - 1) * 50
-    }))
-    .force('charge', d3.forceManyBody().strength(-400))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collide', d3.forceCollide(50))
-    // Add gravity toward center, pulling isolated node groups to center area
-    .force('x', d3.forceX(width / 2).strength(0.04))
-    .force('y', d3.forceY(height / 2).strength(0.04))
-  
+  const linkDistance = (d) => {
+    const baseDistance = 150
+    const edgeCount = d.pairTotal || 1
+    return baseDistance + (edgeCount - 1) * 50
+  }
+
+  let simulation
+  if (useIncremental) {
+    simulation = currentSimulation
+    simulation.nodes(nodes)
+    simulation.force(
+      'link',
+      d3.forceLink(edges).id((d) => d.id).distance(linkDistance)
+    )
+    simulation.force('center', d3.forceCenter(width / 2, height / 2))
+    simulation.force('x', d3.forceX(width / 2).strength(0.04))
+    simulation.force('y', d3.forceY(height / 2).strength(0.04))
+  } else {
+    simulation = d3
+      .forceSimulation(nodes)
+      .force('link', d3.forceLink(edges).id((d) => d.id).distance(linkDistance))
+      .force('charge', d3.forceManyBody().strength(-400))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide(50))
+      .force('x', d3.forceX(width / 2).strength(0.04))
+      .force('y', d3.forceY(height / 2).strength(0.04))
+  }
+
   currentSimulation = simulation
 
-  const g = svg.append('g')
-  
-  // Zoom
-  svg.call(d3.zoom().extent([[0, 0], [width, height]]).scaleExtent([0.1, 4]).on('zoom', (event) => {
-    g.attr('transform', event.transform)
-  }))
+  let linkGroup
+  let nodeGroup
+  if (!useIncremental) {
+    linkGroup = g.append('g').attr('class', 'links')
+    nodeGroup = g.append('g').attr('class', 'nodes')
+  } else {
+    linkGroup = g.select('g.links')
+    nodeGroup = g.select('g.nodes')
+  }
 
-  // Links - use path to support curves
-  const linkGroup = g.append('g').attr('class', 'links')
-  
+  simulation.on('tick', null)
+
   // Calculate curve path
   const getLinkPath = (d) => {
     const sx = d.source.x, sy = d.source.y
@@ -568,75 +738,84 @@ const renderGraph = () => {
     return { x: midX, y: midY }
   }
   
-  const link = linkGroup.selectAll('path')
-    .data(edges)
-    .enter().append('path')
-    .attr('stroke', '#C0C0C0')
-    .attr('stroke-width', 1.5)
-    .attr('fill', 'none')
-    .style('cursor', 'pointer')
+  const linkPaths = linkGroup
+    .selectAll('path.graph-link')
+    .data(edges, edgeKey)
+    .join((enter) =>
+      enter
+        .append('path')
+        .attr('class', 'graph-link')
+        .attr('stroke', '#C0C0C0')
+        .attr('stroke-width', 1.5)
+        .attr('fill', 'none')
+        .style('cursor', 'pointer')
+    )
     .on('click', (event, d) => {
       event.stopPropagation()
-      // Reset previously selected edge styles
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+      linkGroup.selectAll('path.graph-link').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
       linkLabels.attr('fill', '#666')
-      // Highlight currently selected edge
       d3.select(event.target).attr('stroke', '#3498db').attr('stroke-width', 3)
-      
+
       selectedItem.value = {
         type: 'edge',
         data: d.rawData
       }
     })
 
-  // Link labels background (white background makes text clearer)
-  const linkLabelBg = linkGroup.selectAll('rect')
-    .data(edges)
-    .enter().append('rect')
-    .attr('fill', 'rgba(255,255,255,0.95)')
-    .attr('rx', 3)
-    .attr('ry', 3)
-    .style('cursor', 'pointer')
-    .style('pointer-events', 'all')
-    .style('display', showEdgeLabels.value ? 'block' : 'none')
+  const linkLabelBg = linkGroup
+    .selectAll('rect.graph-link-label-bg')
+    .data(edges, edgeKey)
+    .join((enter) =>
+      enter
+        .append('rect')
+        .attr('class', 'graph-link-label-bg')
+        .attr('fill', 'rgba(255,255,255,0.95)')
+        .attr('rx', 3)
+        .attr('ry', 3)
+        .style('cursor', 'pointer')
+        .style('pointer-events', 'all')
+        .style('display', showEdgeLabels.value ? 'block' : 'none')
+    )
     .on('click', (event, d) => {
       event.stopPropagation()
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+      linkGroup.selectAll('path.graph-link').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
       linkLabels.attr('fill', '#666')
-      // Highlight corresponding edge
-      link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
+      linkPaths.filter((l) => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', 'rgba(52, 152, 219, 0.1)')
-      
+
       selectedItem.value = {
         type: 'edge',
         data: d.rawData
       }
     })
 
-  // Link labels
-  const linkLabels = linkGroup.selectAll('text')
-    .data(edges)
-    .enter().append('text')
-    .text(d => d.name)
-    .attr('font-size', '9px')
-    .attr('fill', '#666')
-    .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', 'middle')
-    .style('cursor', 'pointer')
-    .style('pointer-events', 'all')
-    .style('font-family', 'system-ui, sans-serif')
-    .style('display', showEdgeLabels.value ? 'block' : 'none')
+  const linkLabels = linkGroup
+    .selectAll('text.graph-link-label')
+    .data(edges, edgeKey)
+    .join((enter) =>
+      enter
+        .append('text')
+        .attr('class', 'graph-link-label')
+        .text((d) => d.name)
+        .attr('font-size', '9px')
+        .attr('fill', '#666')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'middle')
+        .style('cursor', 'pointer')
+        .style('pointer-events', 'all')
+        .style('font-family', 'system-ui, sans-serif')
+        .style('display', showEdgeLabels.value ? 'block' : 'none')
+    )
     .on('click', (event, d) => {
       event.stopPropagation()
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+      linkGroup.selectAll('path.graph-link').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
       linkLabels.attr('fill', '#666')
-      // Highlight corresponding edge
-      link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
+      linkPaths.filter((l) => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', '#3498db')
-      
+
       selectedItem.value = {
         type: 'edge',
         data: d.rawData
@@ -647,18 +826,19 @@ const renderGraph = () => {
   linkLabelsRef = linkLabels
   linkLabelBgRef = linkLabelBg
 
-  // Nodes group
-  const nodeGroup = g.append('g').attr('class', 'nodes')
-  
-  // Node circles
-  const node = nodeGroup.selectAll('circle')
-    .data(nodes)
-    .enter().append('circle')
-    .attr('r', 10)
-    .attr('fill', d => getColor(d.type))
-    .attr('stroke', '#fff')
-    .attr('stroke-width', 2.5)
-    .style('cursor', 'pointer')
+  const node = nodeGroup
+    .selectAll('circle.graph-node')
+    .data(nodes, (d) => d.id)
+    .join((enter) =>
+      enter
+        .append('circle')
+        .attr('class', 'graph-node')
+        .attr('r', 10)
+        .attr('fill', (d) => getColor(d.type))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2.5)
+        .style('cursor', 'pointer')
+    )
     .call(d3.drag()
       .on('start', (event, d) => {
         // Only record position, don't restart simulation (distinguish click from drag)
@@ -699,11 +879,12 @@ const renderGraph = () => {
       event.stopPropagation()
       // Reset all node styles
       node.attr('stroke', '#fff').attr('stroke-width', 2.5)
-      linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+      linkGroup.selectAll('path.graph-link').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       // Highlight selected node
       d3.select(event.target).attr('stroke', '#E91E63').attr('stroke-width', 4)
       // Highlight edges connected to this node
-      link.filter(l => l.source.id === d.id || l.target.id === d.id)
+      linkPaths
+        .filter((l) => l.source.id === d.id || l.target.id === d.id)
         .attr('stroke', '#E91E63')
         .attr('stroke-width', 2.5)
       
@@ -725,22 +906,26 @@ const renderGraph = () => {
       }
     })
 
-  // Node Labels
-  const nodeLabels = nodeGroup.selectAll('text')
-    .data(nodes)
-    .enter().append('text')
-    .text(d => d.name.length > 8 ? d.name.substring(0, 8) + '…' : d.name)
-    .attr('font-size', '11px')
-    .attr('fill', '#333')
-    .attr('font-weight', '500')
-    .attr('dx', 14)
-    .attr('dy', 4)
-    .style('pointer-events', 'none')
-    .style('font-family', 'system-ui, sans-serif')
+  const nodeLabels = nodeGroup
+    .selectAll('text.graph-node-label')
+    .data(nodes, (d) => d.id)
+    .join((enter) =>
+      enter
+        .append('text')
+        .attr('class', 'graph-node-label')
+        .text((d) => (d.name.length > 8 ? d.name.substring(0, 8) + '…' : d.name))
+        .attr('font-size', '11px')
+        .attr('fill', '#333')
+        .attr('font-weight', '500')
+        .attr('dx', 14)
+        .attr('dy', 4)
+        .style('pointer-events', 'none')
+        .style('font-family', 'system-ui, sans-serif')
+    )
 
   simulation.on('tick', () => {
     // Update curve paths
-    link.attr('d', d => getLinkPath(d))
+    linkPaths.attr('d', (d) => getLinkPath(d))
     
     // Update edge label positions (no rotation, horizontal display is clearer)
     linkLabels.each(function(d) {
@@ -777,10 +962,20 @@ const renderGraph = () => {
   svg.on('click', () => {
     selectedItem.value = null
     node.attr('stroke', '#fff').attr('stroke-width', 2.5)
-    linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
+    linkGroup.selectAll('path.graph-link').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
     linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
     linkLabels.attr('fill', '#666')
   })
+
+  if (useIncremental) {
+    simulation.alpha(0.45).restart()
+  }
+
+  lastLayoutGraphId = graphId
+  lastNodeIdSet = model.nodeIdSet
+  lastEdgeFpSet = model.edgeFpSet
+
+  applyGraphNodeFilter()
 }
 
 watch(() => props.graphData, () => {
@@ -797,15 +992,35 @@ watch(showEdgeLabels, (newVal) => {
   }
 })
 
+let resizeDebounceTimer = null
+let resizeObserver = null
+
+const scheduleResize = () => {
+  if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
+  resizeDebounceTimer = setTimeout(() => {
+    resizeDebounceTimer = null
+    nextTick(renderGraph)
+  }, 175)
+}
+
 const handleResize = () => {
-  nextTick(renderGraph)
+  scheduleResize()
 }
 
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  if (typeof ResizeObserver !== 'undefined' && graphContainer.value) {
+    resizeObserver = new ResizeObserver(() => scheduleResize())
+    resizeObserver.observe(graphContainer.value)
+  }
 })
 
 onUnmounted(() => {
+  if (graphFilterDebounceTimer) clearTimeout(graphFilterDebounceTimer)
+  graphFilterDebounceTimer = null
+  if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
+  resizeObserver?.disconnect()
+  resizeObserver = null
   window.removeEventListener('resize', handleResize)
   if (currentSimulation) {
     currentSimulation.stop()
@@ -814,6 +1029,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.graph-cap-hint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 11px;
+  max-width: 90%;
+  text-align: center;
+  pointer-events: none;
+}
+
 .graph-panel {
   position: relative;
   width: 100%;
@@ -850,6 +1080,22 @@ onUnmounted(() => {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.graph-filter-input {
+  width: 9rem;
+  max-width: 28vw;
+  height: 32px;
+  padding: 0 0.5rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #333;
+  background: #fff;
+}
+
+.graph-filter-input::placeholder {
+  color: #999;
 }
 
 .tool-btn {
@@ -1062,12 +1308,28 @@ input:checked + .slider:before {
 }
 
 .detail-type-badge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   margin-left: auto;
-  margin-right: 12px;
+  margin-right: 0.5rem;
+}
+
+.detail-focus-btn {
+  margin-right: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1565c0;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.detail-focus-btn:hover {
+  background: #bbdefb;
 }
 
 .detail-close {
@@ -1419,5 +1681,85 @@ input:checked + .slider:before {
 .episode-tag.small {
   padding: 3px 6px;
   font-size: 9px;
+}
+
+.query-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem;
+  overflow: auto;
+}
+
+.query-modal {
+  background: #fff;
+  border-radius: 10px;
+  max-width: 640px;
+  width: 100%;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.query-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.query-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #666;
+}
+
+.query-hint {
+  font-size: 0.75rem;
+  color: #666;
+  margin: 0 0 0.5rem;
+}
+
+.query-ta {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.query-actions {
+  margin-top: 0.5rem;
+}
+
+.tool-btn.primary {
+  background: #004e89;
+  color: #fff;
+}
+
+.query-err {
+  margin-top: 0.5rem;
+  color: #a40000;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.query-out {
+  margin-top: 0.5rem;
+  background: #f7f7f7;
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.72rem;
+  max-height: 240px;
+  overflow: auto;
 }
 </style>

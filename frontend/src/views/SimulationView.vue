@@ -21,6 +21,14 @@
       </div>
 
       <div class="header-right">
+        <button
+          type="button"
+          class="compare-nav-btn"
+          @click="goCompareSimulations"
+          aria-label="Open simulation compare view with current simulation as simulation A"
+        >
+          Compare
+        </button>
         <div class="workflow-step">
           <span class="step-num">Step 2/5</span>
           <span class="step-name">Environment Setup</span>
@@ -70,6 +78,7 @@ import GraphPanel from '../components/GraphPanel.vue'
 import Step2EnvSetup from '../components/Step2EnvSetup.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation, stopSimulation, getEnvStatus, closeSimulationEnv } from '../api/simulation'
+import { useWorkflowLayout } from '../composables/useWorkflowLayout'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,8 +88,7 @@ const props = defineProps({
   simulationId: String
 })
 
-// Layout State
-const viewMode = ref('split')
+const { viewMode, leftPanelStyle, rightPanelStyle, toggleMaximize } = useWorkflowLayout('split')
 
 // Data State
 const currentSimulationId = ref(route.params.simulationId)
@@ -89,19 +97,6 @@ const graphData = ref(null)
 const graphLoading = ref(false)
 const systemLogs = ref([])
 const currentStatus = ref('processing') // processing | completed | error
-
-// --- Computed Layout Styles ---
-const leftPanelStyle = computed(() => {
-  if (viewMode.value === 'graph') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'workbench') return { width: '0%', opacity: 0, transform: 'translateX(-20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
-
-const rightPanelStyle = computed(() => {
-  if (viewMode.value === 'workbench') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'graph') return { width: '0%', opacity: 0, transform: 'translateX(20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
 
 // --- Status Computed ---
 const statusClass = computed(() => {
@@ -127,13 +122,12 @@ const updateStatus = (status) => {
   currentStatus.value = status
 }
 
-// --- Layout Methods ---
-const toggleMaximize = (target) => {
-  if (viewMode.value === target) {
-    viewMode.value = 'split'
-  } else {
-    viewMode.value = target
-  }
+const goCompareSimulations = () => {
+  const sid = currentSimulationId.value || route.params.simulationId
+  router.push({
+    name: 'SimulationCompare',
+    query: sid ? { a: String(sid) } : {},
+  })
 }
 
 const handleGoBack = () => {
@@ -394,9 +388,23 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #666;
   font-weight: 500;
+}
+
+.compare-nav-btn {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid #d7e4f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #004e89;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.compare-nav-btn:hover {
+  background: #f5f9fc;
 }
 
 .dot {
@@ -430,5 +438,54 @@ onMounted(async () => {
 .panel-wrapper.left {
   border-right: 1px solid #EAEAEA;
 }
-</style>
 
+@media (max-width: 960px) {
+  .app-header {
+    height: auto;
+    padding: 0.85rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+  }
+
+  .header-right {
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .content-area {
+    flex-direction: column;
+  }
+
+  .panel-wrapper,
+  .panel-wrapper.left,
+  .panel-wrapper.right {
+    width: 100% !important;
+    height: 50%;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .panel-wrapper.left {
+    border-right: none;
+    border-bottom: 1px solid #eaeaea;
+  }
+}
+
+@media (max-width: 640px) {
+  .workflow-step {
+    font-size: 0.8rem;
+  }
+
+  .step-name {
+    display: none;
+  }
+}
+</style>

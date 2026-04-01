@@ -77,39 +77,7 @@
             </div>
           </div>
 
-          <!-- Profiles List Preview -->
-          <div v-if="profiles.length > 0" class="profiles-preview">
-            <div class="preview-header">
-              <span class="preview-title">Generated Agent Personas</span>
-            </div>
-            <div class="profiles-list">
-              <div 
-                v-for="(profile, idx) in profiles" 
-                :key="idx" 
-                class="profile-card"
-                @click="selectProfile(profile)"
-              >
-                <div class="profile-header">
-                  <span class="profile-realname">{{ profile.username || 'Unknown' }}</span>
-                  <span class="profile-username">@{{ profile.name || `agent_${idx}` }}</span>
-                </div>
-                <div class="profile-meta">
-                  <span class="profile-profession">{{ profile.profession || 'Unknown profession' }}</span>
-                </div>
-                <p class="profile-bio">{{ profile.bio || 'No bio available' }}</p>
-                <div v-if="profile.interested_topics?.length" class="profile-topics">
-                  <span 
-                    v-for="topic in profile.interested_topics.slice(0, 3)" 
-                    :key="topic" 
-                    class="topic-tag"
-                  >{{ topic }}</span>
-                  <span v-if="profile.interested_topics.length > 3" class="topic-more">
-                    +{{ profile.interested_topics.length - 3 }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Step2ProfilesPreview :profiles="profiles" @select="selectProfile" />
         </div>
       </div>
 
@@ -633,13 +601,14 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { 
-  prepareSimulation, 
-  getPrepareStatus, 
+import {
+  prepareSimulation,
+  getPrepareStatus,
   getSimulationProfilesRealtime,
   getSimulationConfig,
-  getSimulationConfigRealtime 
+  getSimulationConfigRealtime
 } from '../api/simulation'
+import Step2ProfilesPreview from './step2/Step2ProfilesPreview.vue'
 
 const props = defineProps({
   simulationId: String,  // passed from parent component
@@ -1295,126 +1264,6 @@ onUnmounted(() => {
   text-transform: uppercase;
   margin-top: 4px;
   display: block;
-}
-
-/* Profiles Preview */
-.profiles-preview {
-  margin-top: 20px;
-  border-top: 1px solid #E5E5E5;
-  padding-top: 16px;
-}
-
-.preview-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.preview-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.profiles-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.profiles-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.profiles-list::-webkit-scrollbar-thumb {
-  background: #DDD;
-  border-radius: 2px;
-}
-
-.profiles-list::-webkit-scrollbar-thumb:hover {
-  background: #CCC;
-}
-
-.profile-card {
-  background: #FAFAFA;
-  border: 1px solid #E5E5E5;
-  border-radius: 6px;
-  padding: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.profile-card:hover {
-  border-color: #999;
-  background: #FFF;
-}
-
-.profile-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.profile-realname {
-  font-size: 14px;
-  font-weight: 700;
-  color: #000;
-}
-
-.profile-username {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: #999;
-}
-
-.profile-meta {
-  margin-bottom: 8px;
-}
-
-.profile-profession {
-  font-size: 11px;
-  color: #666;
-  background: #F0F0F0;
-  padding: 2px 8px;
-  border-radius: 3px;
-}
-
-.profile-bio {
-  font-size: 12px;
-  color: #444;
-  line-height: 1.6;
-  margin: 0 0 10px 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.profile-topics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.topic-tag {
-  font-size: 10px;
-  color: #1565C0;
-  background: #E3F2FD;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.topic-more {
-  font-size: 10px;
-  color: #999;
-  padding: 2px 6px;
 }
 
 /* Config Preview */

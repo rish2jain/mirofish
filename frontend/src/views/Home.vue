@@ -4,6 +4,10 @@
     <nav class="navbar">
       <div class="nav-brand">MIROFISH</div>
       <div class="nav-links">
+        <router-link to="/tools" class="github-link">Tools</router-link>
+        <router-link to="/templates/edit" class="github-link">Templates</router-link>
+        <router-link to="/report/compare" class="github-link">Compare reports</router-link>
+        <router-link to="/simulation/compare" class="github-link">Compare simulations</router-link>
         <a href="https://github.com/666ghj/MiroFish" target="_blank" class="github-link">
           Visit our Github page <span class="arrow">↗</span>
         </a>
@@ -42,7 +46,7 @@
             <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="MiroFish Logo" class="hero-logo" />
           </div>
           
-          <button class="scroll-down-btn" @click="scrollToBottom">
+          <button type="button" class="scroll-down-btn" @click="scrollToBottom" aria-label="Scroll to upload section">
             ↓
           </button>
         </div>
@@ -128,13 +132,18 @@
                 <span class="console-meta">Supported formats: PDF, MD, TXT</span>
               </div>
               
-              <div 
+              <div
                 class="upload-zone"
+                role="button"
+                tabindex="0"
                 :class="{ 'drag-over': isDragOver, 'has-files': files.length > 0 }"
+                aria-label="Upload documents. Press Enter or Space to choose files, or drag files here."
                 @dragover.prevent="handleDragOver"
                 @dragleave.prevent="handleDragLeave"
                 @drop.prevent="handleDrop"
                 @click="triggerFileInput"
+                @keydown.enter.prevent="triggerFileInput"
+                @keydown.space.prevent="triggerFileInput"
               >
                 <input
                   ref="fileInput"

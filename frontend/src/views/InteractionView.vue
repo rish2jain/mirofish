@@ -21,6 +21,14 @@
       </div>
 
       <div class="header-right">
+        <button
+          type="button"
+          class="compare-nav-btn"
+          @click="goCompareReports"
+          aria-label="Open compare reports with current report as report A"
+        >
+          Compare
+        </button>
         <div class="workflow-step">
           <span class="step-num">Step 5/5</span>
           <span class="step-name">Deep Interaction</span>
@@ -69,6 +77,7 @@ import Step5Interaction from '../components/Step5Interaction.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation } from '../api/simulation'
 import { getReport } from '../api/report'
+import { useWorkflowLayout } from '../composables/useWorkflowLayout'
 
 const route = useRoute()
 const router = useRouter()
@@ -78,8 +87,7 @@ const props = defineProps({
   reportId: String
 })
 
-// Layout State - default to workbench view
-const viewMode = ref('workbench')
+const { viewMode, leftPanelStyle, rightPanelStyle, toggleMaximize } = useWorkflowLayout('workbench')
 
 // Data State
 const currentReportId = ref(route.params.reportId)
@@ -89,19 +97,6 @@ const graphData = ref(null)
 const graphLoading = ref(false)
 const systemLogs = ref([])
 const currentStatus = ref('ready') // ready | processing | completed | error
-
-// --- Computed Layout Styles ---
-const leftPanelStyle = computed(() => {
-  if (viewMode.value === 'graph') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'workbench') return { width: '0%', opacity: 0, transform: 'translateX(-20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
-
-const rightPanelStyle = computed(() => {
-  if (viewMode.value === 'workbench') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'graph') return { width: '0%', opacity: 0, transform: 'translateX(20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
 
 // --- Status Computed ---
 const statusClass = computed(() => {
@@ -128,13 +123,12 @@ const updateStatus = (status) => {
   currentStatus.value = status
 }
 
-// --- Layout Methods ---
-const toggleMaximize = (target) => {
-  if (viewMode.value === target) {
-    viewMode.value = 'split'
-  } else {
-    viewMode.value = target
-  }
+const goCompareReports = () => {
+  const rid = currentReportId.value || route.params.reportId
+  router.push({
+    name: 'ReportCompare',
+    query: rid ? { a: String(rid) } : {},
+  })
 }
 
 // --- Data Logic ---
@@ -282,6 +276,21 @@ onMounted(() => {
   gap: 16px;
 }
 
+.compare-nav-btn {
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #004e89;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.compare-nav-btn:hover {
+  background: #f5f9fc;
+}
+
 .workflow-step {
   display: flex;
   align-items: center;
@@ -310,7 +319,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #666;
   font-weight: 500;
 }
@@ -346,5 +355,55 @@ onMounted(() => {
 
 .panel-wrapper.left {
   border-right: 1px solid #EAEAEA;
+}
+
+@media (max-width: 960px) {
+  .app-header {
+    height: auto;
+    padding: 0.85rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+  }
+
+  .header-right {
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .content-area {
+    flex-direction: column;
+  }
+
+  .panel-wrapper,
+  .panel-wrapper.left,
+  .panel-wrapper.right {
+    width: 100% !important;
+    height: 50%;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .panel-wrapper.left {
+    border-right: none;
+    border-bottom: 1px solid #eaeaea;
+  }
+}
+
+@media (max-width: 640px) {
+  .workflow-step {
+    font-size: 0.8rem;
+  }
+
+  .step-name {
+    display: none;
+  }
 }
 </style>

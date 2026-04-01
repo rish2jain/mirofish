@@ -26,12 +26,14 @@
           <span class="step-name">{{ stepNames[currentStep - 1] }}</span>
         </div>
         <div class="step-divider"></div>
-        <span class="status-indicator" :class="statusClass">
-          <span class="dot"></span>
+        <span class="status-indicator" :class="statusClass" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span>
           {{ statusText }}
         </span>
       </div>
     </header>
+
+    <div v-if="error" class="main-error-banner" role="alert">{{ error }}</div>
 
     <!-- Main Content Area -->
     <main class="content-area">
@@ -75,19 +77,21 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step1GraphBuild from '../components/Step1GraphBuild.vue'
 import Step2EnvSetup from '../components/Step2EnvSetup.vue'
 import { generateOntology, getProject, buildGraph, getTaskStatus, getGraphData } from '../api/graph'
 import { getPendingUpload, clearPendingUpload } from '../store/pendingUpload'
+import { useWorkbenchStore } from '../stores/workbench'
+import { useWorkflowLayout } from '../composables/useWorkflowLayout'
 
 const route = useRoute()
+const workbench = useWorkbenchStore()
 const router = useRouter()
 
-// Layout State
-const viewMode = ref('split') // graph | split | workbench
+const { viewMode, leftPanelStyle, rightPanelStyle, toggleMaximize } = useWorkflowLayout('split')
 
 // Step State
 const currentStep = ref(1) // 1: Graph Build, 2: Environment Setup, 3: Start Simulation, 4: Report Generation, 5: Deep Interaction
@@ -105,22 +109,37 @@ const ontologyProgress = ref(null)
 const buildProgress = ref(null)
 const systemLogs = ref([])
 
-// Polling timers
+watch(
+  projectData,
+  (p) => {
+    if (!p) return
+    workbench.setContext({
+      projectId: p.project_id ?? null,
+      graphId: p.graph_id ?? null,
+    })
+  },
+  { deep: true, immediate: true }
+)
+
+// Polling timers + optional SSE for graph build task
 let pollTimer = null
 let graphPollTimer = null
+let taskEventSource = null
+let graphTaskSseErrorCount = 0
 
-// --- Computed Layout Styles ---
-const leftPanelStyle = computed(() => {
-  if (viewMode.value === 'graph') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'workbench') return { width: '0%', opacity: 0, transform: 'translateX(-20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
+const useGraphTaskSse = () => {
+  const v = import.meta.env.VITE_GRAPH_TASK_SSE
+  if (v === '0' || v === 'false') return false
+  return typeof EventSource !== 'undefined'
+}
 
-const rightPanelStyle = computed(() => {
-  if (viewMode.value === 'workbench') return { width: '100%', opacity: 1, transform: 'translateX(0)' }
-  if (viewMode.value === 'graph') return { width: '0%', opacity: 0, transform: 'translateX(20px)' }
-  return { width: '50%', opacity: 1, transform: 'translateX(0)' }
-})
+const closeGraphTaskStream = () => {
+  if (taskEventSource) {
+    taskEventSource.close()
+    taskEventSource = null
+  }
+  graphTaskSseErrorCount = 0
+}
 
 // --- Status Computed ---
 const statusClass = computed(() => {
@@ -144,15 +163,6 @@ const addLog = (msg) => {
   // Keep last 100 logs
   if (systemLogs.value.length > 100) {
     systemLogs.value.shift()
-  }
-}
-
-// --- Layout Methods ---
-const toggleMaximize = (target) => {
-  if (viewMode.value === target) {
-    viewMode.value = 'split'
-  } else {
-    viewMode.value = target
   }
 }
 
@@ -292,7 +302,7 @@ const startBuildGraph = async () => {
 const startGraphPolling = () => {
   addLog('Started polling for graph data...')
   fetchGraphData()
-  graphPollTimer = setInterval(fetchGraphData, 10000)
+  graphPollTimer = setInterval(fetchGraphData, 20000)
 }
 
 const fetchGraphData = async () => {
@@ -313,41 +323,96 @@ const fetchGraphData = async () => {
   }
 }
 
-const startPollingTask = (taskId) => {
+const applyGraphTaskUpdate = async (task) => {
+  if (task.message && task.message !== buildProgress.value?.message) {
+    addLog(task.message)
+  }
+  buildProgress.value = { progress: task.progress || 0, message: task.message }
+
+  if (task.status === 'completed') {
+    addLog('Graph build task completed.')
+    stopPolling()
+    stopGraphPolling()
+    currentPhase.value = 2
+    const projRes = await getProject(currentProjectId.value)
+    if (projRes.success && projRes.data.graph_id) {
+      projectData.value = projRes.data
+      await loadGraph(projRes.data.graph_id)
+    }
+  } else if (task.status === 'failed') {
+    stopPolling()
+    stopGraphPolling()
+    error.value = task.error
+    addLog(`Graph build task failed: ${task.error}`)
+  }
+}
+
+const startIntervalTaskPolling = (taskId) => {
+  if (pollTimer) return
   pollTaskStatus(taskId)
   pollTimer = setInterval(() => pollTaskStatus(taskId), 2000)
+}
+
+const startPollingTask = (taskId) => {
+  closeGraphTaskStream()
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+
+  if (useGraphTaskSse() && taskId) {
+    const apiBase = import.meta.env.VITE_API_BASE_URL || window.location.origin
+    const url = new URL(
+      `/api/graph/task/${encodeURIComponent(taskId)}/sse`,
+      apiBase
+    )
+    graphTaskSseErrorCount = 0
+    const es = new EventSource(url.href)
+    taskEventSource = es
+    es.onmessage = (event) => {
+      graphTaskSseErrorCount = 0
+      try {
+        const parsed = JSON.parse(event.data)
+        if (parsed.success && parsed.data) {
+          applyGraphTaskUpdate(parsed.data).catch((err) => {
+            console.error('applyGraphTaskUpdate failed', err)
+            addLog(`Graph task update failed: ${err?.message || err}`)
+          })
+          const st = parsed.data.status
+          if (st === 'completed' || st === 'failed') {
+            es.close()
+            taskEventSource = null
+          }
+        } else if (parsed.success === false) {
+          addLog(`Graph task stream: ${parsed.error || 'error'}`)
+          es.close()
+          taskEventSource = null
+          startIntervalTaskPolling(taskId)
+        }
+      } catch (e) {
+        console.warn('Graph task SSE parse failed', e)
+      }
+    }
+    es.onerror = () => {
+      graphTaskSseErrorCount += 1
+      if (graphTaskSseErrorCount >= 3 && currentPhase.value === 1) {
+        es.close()
+        taskEventSource = null
+        addLog('Graph task live stream unavailable; using polling')
+        startIntervalTaskPolling(taskId)
+      }
+    }
+    return
+  }
+
+  startIntervalTaskPolling(taskId)
 }
 
 const pollTaskStatus = async (taskId) => {
   try {
     const res = await getTaskStatus(taskId)
     if (res.success) {
-      const task = res.data
-      
-      // Log progress message if it changed
-      if (task.message && task.message !== buildProgress.value?.message) {
-        addLog(task.message)
-      }
-      
-      buildProgress.value = { progress: task.progress || 0, message: task.message }
-      
-      if (task.status === 'completed') {
-        addLog('Graph build task completed.')
-        stopPolling()
-        stopGraphPolling() // Stop polling, do final load
-        currentPhase.value = 2
-        
-        // Final load
-        const projRes = await getProject(currentProjectId.value)
-        if (projRes.success && projRes.data.graph_id) {
-            projectData.value = projRes.data
-            await loadGraph(projRes.data.graph_id)
-        }
-      } else if (task.status === 'failed') {
-        stopPolling()
-        error.value = task.error
-        addLog(`Graph build task failed: ${task.error}`)
-      }
+      await applyGraphTaskUpdate(res.data)
     }
   } catch (e) {
     console.error(e)
@@ -380,6 +445,7 @@ const refreshGraph = () => {
 }
 
 const stopPolling = () => {
+  closeGraphTaskStream()
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
@@ -471,7 +537,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #666;
   font-weight: 500;
 }
@@ -519,6 +585,14 @@ onUnmounted(() => {
 
 @keyframes pulse { 50% { opacity: 0.5; } }
 
+.main-error-banner {
+  padding: 0.65rem 1.25rem;
+  background: #ffebee;
+  color: #b71c1c;
+  font-size: 0.875rem;
+  border-bottom: 1px solid #ffcdd2;
+}
+
 /* Content */
 .content-area {
   flex: 1;
@@ -536,5 +610,55 @@ onUnmounted(() => {
 
 .panel-wrapper.left {
   border-right: 1px solid #EAEAEA;
+}
+
+@media (max-width: 960px) {
+  .app-header {
+    height: auto;
+    padding: 0.85rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+  }
+
+  .header-right {
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .content-area {
+    flex-direction: column;
+  }
+
+  .panel-wrapper,
+  .panel-wrapper.left,
+  .panel-wrapper.right {
+    width: 100% !important;
+    height: 50%;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .panel-wrapper.left {
+    border-right: none;
+    border-bottom: 1px solid #eaeaea;
+  }
+}
+
+@media (max-width: 640px) {
+  .workflow-step {
+    font-size: 0.8rem;
+  }
+
+  .step-name {
+    display: none;
+  }
 }
 </style>

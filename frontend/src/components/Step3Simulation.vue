@@ -459,12 +459,75 @@ const handleStopSimulation = async () => {
   }
 }
 
-// Poll status
+// Poll status (HTTP interval) + optional SSE for run-status
 let statusTimer = null
 let detailTimer = null
+let statusEventSource = null
+let sseErrorCount = 0
+
+const useSimulationStatusStream = () => {
+  const v = import.meta.env.VITE_SIMULATION_SSE
+  if (v === '0' || v === 'false') return false
+  return typeof EventSource !== 'undefined'
+}
+
+const closeStatusStream = () => {
+  if (statusEventSource) {
+    statusEventSource.close()
+    statusEventSource = null
+  }
+  sseErrorCount = 0
+}
+
+const startIntervalStatusPolling = () => {
+  if (statusTimer) return
+  statusTimer = setInterval(fetchRunStatus, 2000)
+}
 
 const startStatusPolling = () => {
-  statusTimer = setInterval(fetchRunStatus, 2000)
+  closeStatusStream()
+  if (statusTimer) {
+    clearInterval(statusTimer)
+    statusTimer = null
+  }
+
+  if (useSimulationStatusStream() && props.simulationId) {
+    const url = new URL(
+      `/api/simulation/${encodeURIComponent(props.simulationId)}/run-status/stream`,
+      window.location.origin
+    )
+    sseErrorCount = 0
+    const es = new EventSource(url.href)
+    statusEventSource = es
+    es.onmessage = (event) => {
+      sseErrorCount = 0
+      try {
+        const parsed = JSON.parse(event.data)
+        if (parsed.success && parsed.data) {
+          applyRunStatusData(parsed.data)
+        } else if (parsed.success === false) {
+          addLog(`Status stream: ${parsed.error || 'error'}`)
+          es.close()
+          statusEventSource = null
+          startIntervalStatusPolling()
+        }
+      } catch (e) {
+        console.warn('SSE message parse failed', e)
+      }
+    }
+    es.onerror = () => {
+      sseErrorCount += 1
+      if (sseErrorCount >= 3 && phase.value === 1) {
+        es.close()
+        statusEventSource = null
+        addLog('Live status stream unavailable; using polling')
+        startIntervalStatusPolling()
+      }
+    }
+    return
+  }
+
+  startIntervalStatusPolling()
 }
 
 const startDetailPolling = () => {
@@ -472,6 +535,7 @@ const startDetailPolling = () => {
 }
 
 const stopPolling = () => {
+  closeStatusStream()
   if (statusTimer) {
     clearInterval(statusTimer)
     statusTimer = null
@@ -486,44 +550,46 @@ const stopPolling = () => {
 const prevTwitterRound = ref(0)
 const prevRedditRound = ref(0)
 
+const applyRunStatusData = (data) => {
+  if (!data) return
+
+  runStatus.value = data
+
+  if (data.twitter_current_round > prevTwitterRound.value) {
+    addLog(`[Plaza] R${data.twitter_current_round}/${data.total_rounds} | T:${data.twitter_simulated_hours || 0}h | A:${data.twitter_actions_count}`)
+    prevTwitterRound.value = data.twitter_current_round
+  }
+
+  if (data.reddit_current_round > prevRedditRound.value) {
+    addLog(`[Community] R${data.reddit_current_round}/${data.total_rounds} | T:${data.reddit_simulated_hours || 0}h | A:${data.reddit_actions_count}`)
+    prevRedditRound.value = data.reddit_current_round
+  }
+
+  const isCompleted = data.runner_status === 'completed' || data.runner_status === 'stopped'
+  const platformsCompleted = checkPlatformsCompleted(data)
+
+  if (isCompleted || platformsCompleted) {
+    if (isCompleted) {
+      addLog('✓ Simulation completed')
+    } else if (platformsCompleted) {
+      addLog('✓ All platform simulations detected as completed')
+      addLog('✓ Simulation completed')
+    }
+    phase.value = 2
+    closeStatusStream()
+    stopPolling()
+    emit('update-status', 'completed')
+  }
+}
+
 const fetchRunStatus = async () => {
   if (!props.simulationId) return
-  
+
   try {
     const res = await getRunStatus(props.simulationId)
-    
+
     if (res.success && res.data) {
-      const data = res.data
-      
-      runStatus.value = data
-      
-      // Detect round changes per platform and output logs
-      if (data.twitter_current_round > prevTwitterRound.value) {
-        addLog(`[Plaza] R${data.twitter_current_round}/${data.total_rounds} | T:${data.twitter_simulated_hours || 0}h | A:${data.twitter_actions_count}`)
-        prevTwitterRound.value = data.twitter_current_round
-      }
-      
-      if (data.reddit_current_round > prevRedditRound.value) {
-        addLog(`[Community] R${data.reddit_current_round}/${data.total_rounds} | T:${data.reddit_simulated_hours || 0}h | A:${data.reddit_actions_count}`)
-        prevRedditRound.value = data.reddit_current_round
-      }
-      
-      // Check if simulation completed (via runner_status or platform completion)
-      const isCompleted = data.runner_status === 'completed' || data.runner_status === 'stopped'
-      
-      // Extra check: if backend hasn't updated runner_status yet, but platforms report completion
-      // Detect via twitter_completed and reddit_completed status
-      const platformsCompleted = checkPlatformsCompleted(data)
-      
-      if (isCompleted || platformsCompleted) {
-        if (platformsCompleted && !isCompleted) {
-          addLog('✓ All platform simulations detected as completed')
-        }
-        addLog('✓ Simulation completed')
-        phase.value = 2
-        stopPolling()
-        emit('update-status', 'completed')
-      }
+      applyRunStatusData(res.data)
     }
   } catch (err) {
     console.warn('Failed to fetch run status:', err)

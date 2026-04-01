@@ -190,6 +190,9 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { createSimulation } from '../api/simulation'
+import { useUiStore } from '../stores/ui'
+
+const ui = useUiStore()
 
 const router = useRouter()
 
@@ -233,11 +236,11 @@ const handleEnterEnvSetup = async () => {
       })
     } else {
       console.error('Failed to create simulation:', res.error)
-      alert('Failed to create simulation: ' + (res.error || 'Unknown error'))
+      ui.showToast('Failed to create simulation: ' + (res.error || 'Unknown error'))
     }
   } catch (err) {
     console.error('Simulation creation error:', err)
-    alert('Simulation creation error: ' + err.message)
+    ui.showToast('Simulation creation error: ' + err.message)
   } finally {
     creatingSimulation.value = false
   }

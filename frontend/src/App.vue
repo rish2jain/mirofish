@@ -1,9 +1,16 @@
 <template>
-  <router-view />
+  <div class="app-root">
+    <div v-if="ui.toastVisible" class="app-toast" role="status">{{ ui.toastMessage }}</div>
+    <router-view />
+  </div>
 </template>
 
 <script setup>
-// Uses Vue Router for page management
+import { storeToRefs } from 'pinia'
+import { useUiStore } from './stores/ui'
+
+const uiStore = useUiStore()
+const ui = storeToRefs(uiStore)
 </script>
 
 <style>
@@ -12,6 +19,26 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+.app-root {
+  min-height: 100vh;
+}
+
+.app-toast {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  max-width: min(90vw, 32rem);
+  padding: 0.75rem 1rem;
+  background: #111;
+  color: #fff;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
 }
 
 #app {
