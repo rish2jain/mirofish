@@ -1,0 +1,121 @@
+[
+  {
+    "id": "regulatory_fast",
+    "name": "Regulatory Impact - Breaking News",
+    "description": "Fast-moving regulatory announcement with immediate market reaction",
+    "num_agents": 15,
+    "topic_type": "regulatory",
+    "urgency": "high",
+    "expected_duration_hours": 48,
+    "agent_types": {
+      "officials": 3,
+      "executives": 4,
+      "journalists": 2,
+      "analysts": 2,
+      "ngos": 2,
+      "general": 2
+    },
+    "gold_metrics": {
+      "min_unique_actions": 80,
+      "min_action_diversity": 0.4,
+      "min_agent_participation": 0.8,
+      "ideal_posts_per_agent": 6,
+      "ideal_rounds": 12
+    }
+  },
+  {
+    "id": "crisis_comms",
+    "name": "Data Breach Crisis",
+    "description": "Corporate crisis unfolding over 72 hours with multiple stakeholder responses",
+    "num_agents": 20,
+    "topic_type": "crisis",
+    "urgency": "critical",
+    "expected_duration_hours": 72,
+    "agent_types": {
+      "executives": 3,
+      "journalists": 4,
+      "officials": 3,
+      "cybersecurity": 2,
+      "ngos": 2,
+      "analysts": 2,
+      "general": 4
+    },
+    "gold_metrics": {
+      "min_unique_actions": 120,
+      "min_action_diversity": 0.5,
+      "min_agent_participation": 0.85,
+      "ideal_posts_per_agent": 7,
+      "ideal_rounds": 15
+    }
+  },
+  {
+    "id": "ma_reaction",
+    "name": "M&A Deal Reaction",
+    "description": "Market and stakeholder reaction to major acquisition over 5 days",
+    "num_agents": 18,
+    "topic_type": "financial",
+    "urgency": "medium",
+    "expected_duration_hours": 120,
+    "agent_types": {
+      "executives": 4,
+      "analysts": 4,
+      "journalists": 3,
+      "ngos": 2,
+      "officials": 2,
+      "general": 3
+    },
+    "gold_metrics": {
+      "min_unique_actions": 100,
+      "min_action_diversity": 0.45,
+      "min_agent_participation": 0.75,
+      "ideal_posts_per_agent": 6,
+      "ideal_rounds": 20
+    }
+  },
+  {
+    "id": "geopolitical",
+    "name": "Geopolitical Conflict",
+    "description": "Sustained geopolitical tension with information warfare dynamics",
+    "num_agents": 25,
+    "topic_type": "geopolitical",
+    "urgency": "high",
+    "expected_duration_hours": 168,
+    "agent_types": {
+      "officials": 5,
+      "journalists": 5,
+      "analysts": 3,
+      "ngos": 3,
+      "military": 2,
+      "general": 7
+    },
+    "gold_metrics": {
+      "min_unique_actions": 200,
+      "min_action_diversity": 0.55,
+      "min_agent_participation": 0.85,
+      "ideal_posts_per_agent": 9,
+      "ideal_rounds": 25
+    }
+  },
+  {
+    "id": "small_focused",
+    "name": "Small Focused Simulation",
+    "description": "Minimal simulation for quick testing or niche topics",
+    "num_agents": 8,
+    "topic_type": "niche",
+    "urgency": "low",
+    "expected_duration_hours": 24,
+    "agent_types": {
+      "executives": 2,
+      "analysts": 2,
+      "journalists": 1,
+      "general": 3
+    },
+    "gold_metrics": {
+      "min_unique_actions": 30,
+      "min_action_diversity": 0.35,
+      "min_agent_participation": 0.9,
+      "ideal_posts_per_agent": 4,
+      "ideal_rounds": 8
+    }
+  }
+]

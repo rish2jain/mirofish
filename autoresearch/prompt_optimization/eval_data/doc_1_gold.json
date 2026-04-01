@@ -1,0 +1,39 @@
+{
+  "entities": [
+    {"name": "European Commission", "type": "GovernmentAgency"},
+    {"name": "Thierry Breton", "type": "Official"},
+    {"name": "OpenAI", "type": "Company"},
+    {"name": "Google DeepMind", "type": "Company"},
+    {"name": "Meta", "type": "Company"},
+    {"name": "Microsoft", "type": "Company"},
+    {"name": "Brad Smith", "type": "Executive"},
+    {"name": "Elon Musk", "type": "Executive"},
+    {"name": "U.S. Chamber of Commerce", "type": "Organization"},
+    {"name": "Mark Warner", "type": "Official"},
+    {"name": "John Thune", "type": "Official"},
+    {"name": "Electronic Frontier Foundation", "type": "NGO"},
+    {"name": "Nvidia", "type": "Company"},
+    {"name": "Jensen Huang", "type": "Executive"},
+    {"name": "Goldman Sachs", "type": "Company"},
+    {"name": "Reuters", "type": "MediaOutlet"},
+    {"name": "Bloomberg", "type": "MediaOutlet"},
+    {"name": "Mistral", "type": "Company"},
+    {"name": "Ministry of Science and Technology", "type": "GovernmentAgency"}
+  ],
+  "relationships": [
+    {"source": "Thierry Breton", "target": "European Commission", "type": "WORKS_FOR"},
+    {"source": "Brad Smith", "target": "Microsoft", "type": "WORKS_FOR"},
+    {"source": "Elon Musk", "target": "European Commission", "type": "OPPOSES"},
+    {"source": "Brad Smith", "target": "European Commission", "type": "SUPPORTS"},
+    {"source": "Mark Warner", "target": "John Thune", "type": "COLLABORATES_WITH"},
+    {"source": "Electronic Frontier Foundation", "target": "European Commission", "type": "SUPPORTS"},
+    {"source": "Jensen Huang", "target": "Nvidia", "type": "WORKS_FOR"},
+    {"source": "Goldman Sachs", "target": "European Commission", "type": "REPORTS_ON"},
+    {"source": "Reuters", "target": "European Commission", "type": "REPORTS_ON"},
+    {"source": "Bloomberg", "target": "European Commission", "type": "REPORTS_ON"},
+    {"source": "Mistral", "target": "European Commission", "type": "OPPOSES"},
+    {"source": "European Commission", "target": "OpenAI", "type": "REGULATES"},
+    {"source": "European Commission", "target": "Google DeepMind", "type": "REGULATES"},
+    {"source": "European Commission", "target": "Meta", "type": "REGULATES"}
+  ]
+}

@@ -34,7 +34,7 @@ def _get_non_negative_int_env(name: str, default: int) -> int:
         value = int(stripped)
     except ValueError as exc:
         raise ValueError(
-            f"{name} must be a non-negative integer (seconds), got {raw!r}"
+            f"{name} must be a non-negative integer, got {raw!r}"
         ) from exc
     return max(0, value)
 
@@ -127,6 +127,19 @@ def _get_env_or_default(name: str, default: str) -> str:
     return value if value not in (None, '') else default
 
 
+def _get_app_version() -> str:
+    """Release string from installed distribution ``mirofish-backend`` (pyproject version)."""
+    try:
+        from importlib.metadata import version
+
+        ver = version("mirofish-backend").strip()
+    except Exception:
+        return "v0.0.0"
+    if not ver:
+        return "v0.0.0"
+    return ver if ver.lower().startswith("v") else f"v{ver}"
+
+
 class Config:
     """Flask configuration class."""
 
@@ -139,6 +152,9 @@ class Config:
 
     # JSON config
     JSON_AS_ASCII = False
+
+    # Exposed to clients (e.g. simulation history); single source: pyproject.toml
+    VERSION = _get_app_version()
 
     # LLM config
     LLM_API_KEY = _get_llm_api_key()
@@ -184,10 +200,14 @@ class Config:
     REPORT_AGENT_TEMPERATURE = float(os.environ.get("REPORT_AGENT_TEMPERATURE", "0.5"))
     # Optional: generate sections concurrently (faster; coherence uses outline only, not prior section text)
     REPORT_SECTION_PARALLEL = _get_bool_env("REPORT_SECTION_PARALLEL", False)
-    REPORT_SECTION_PARALLEL_MAX_WORKERS = int(os.environ.get("REPORT_SECTION_PARALLEL_MAX_WORKERS", "4"))
+    REPORT_SECTION_PARALLEL_MAX_WORKERS = _get_non_negative_int_env(
+        "REPORT_SECTION_PARALLEL_MAX_WORKERS", 4
+    )
     # Optional: run InsightForge sub-query graph searches in parallel (separate DB handles per worker)
     INSIGHT_FORGE_PARALLEL_SUBQUERIES = _get_bool_env("INSIGHT_FORGE_PARALLEL_SUBQUERIES", True)
-    INSIGHT_FORGE_SUBQUERY_WORKERS = int(os.environ.get("INSIGHT_FORGE_SUBQUERY_WORKERS", "4"))
+    INSIGHT_FORGE_SUBQUERY_WORKERS = _get_non_negative_int_env(
+        "INSIGHT_FORGE_SUBQUERY_WORKERS", 4
+    )
 
     # LLM response cache (content-hash based, file-backed)
     LLM_CACHE_ENABLED = _get_bool_env("LLM_CACHE_ENABLED", True)

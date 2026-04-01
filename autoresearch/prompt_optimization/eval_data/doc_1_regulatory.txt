@@ -1,0 +1,7 @@
+The European Commission announced new AI regulations on March 15, 2026, led by Commissioner Thierry Breton. The AI Act will require companies like OpenAI, Google DeepMind, and Meta to submit risk assessments for their foundation models. Microsoft President Brad Smith praised the framework as "balanced," while Elon Musk criticized it on X as "innovation-killing bureaucracy."
+
+The U.S. Chamber of Commerce issued a statement warning that similar regulations could harm American competitiveness. Senator Mark Warner (D-VA) introduced a companion bill in the Senate, co-sponsored by Senator John Thune (R-SD). The Electronic Frontier Foundation expressed cautious support but raised concerns about enforcement mechanisms.
+
+In response, Nvidia's CEO Jensen Huang said the regulations would increase demand for compliance tools, potentially benefiting the chip industry. Goldman Sachs published a research note predicting a 15% market correction for AI-focused ETFs. Reuters and Bloomberg both published detailed analyses of the regulatory impact.
+
+The French AI startup Mistral protested that the rules disproportionately affect European competitors. Meanwhile, China's Ministry of Science and Technology announced it would study the EU approach for its own AI governance framework.

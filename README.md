@@ -196,7 +196,7 @@ Document upload → LLM ontology extraction → Knowledge graph (KuzuDB)
 
 - **Web UI:** [Tools](/tools) (when running the dev app) — export/import project bundles, graph snapshots & diff, batch simulations, webhook registration. [Template editor](/templates/edit) updates JSON templates when `MIROFISH_ALLOW_TEMPLATE_WRITE` or `FLASK_DEBUG` is enabled.
 - **Report compare:** [Compare reports](/report/compare) uses `POST /api/report/compare` (side-by-side markdown; fork simulations for A/B, then compare their reports).
-- **Real-time:** Simulation run status streams via `GET /api/simulation/<id>/run-status/stream` (SSE). Report agent logs: `GET /api/report/<id>/agent-log/sse` and `console-log/sse`. Narrative chat streaming: `POST /api/report/chat/stream`.
+- **Real-time:** Simulation run status streams via `GET /api/simulation/<id>/run-status/stream` (SSE). Report agent logs are polled via `GET /api/report/<id>/agent-log` and `GET /api/report/<id>/console-log` (optional alias paths `.../agent-log/poll` and `.../console-log/poll`). Narrative chat streaming: `POST /api/report/chat/stream`.
 - **Webhooks:** Register URLs with `POST /api/hooks/webhooks` (requires `MIROFISH_API_KEY` on the server). Events include `simulation.completed` and `simulation.failed` (HMAC `X-MiroFish-Signature: sha256=…` when a secret is set).
 - **Read-only graph query (Cypher):** `POST /api/graph/query` with `{ "graph_id", "query" }` — read-only **Cypher** (Kuzu's query language, not SQL); Kuzu only; see `.env.example` for `MIROFISH_*` and `BATCH_SIM_MAX_ITEMS`.
 

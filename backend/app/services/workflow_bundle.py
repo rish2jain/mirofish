@@ -161,12 +161,14 @@ def _validate_bundle_graph_lists(graph_data: Dict[str, Any]) -> Tuple[List[Dict[
 
 def _edge_from_api_dict(e: Dict[str, Any]) -> Dict[str, Any]:
     eid = e.get("uuid") or e.get("id")
+    raw_weight = e.get("weight")
+    weight = 1.0 if raw_weight is None else float(raw_weight)
     return {
         "id": str(eid),
         "source_id": str(e.get("source_node_uuid") or e.get("source_id", "")),
         "target_id": str(e.get("target_node_uuid") or e.get("target_id", "")),
         "relation": str(e.get("name") or e.get("fact_type") or e.get("relation", "")),
-        "weight": float(e.get("weight", 1.0) or 1.0),
+        "weight": weight,
         "fact": str(e.get("fact", "") or ""),
         "attributes": e.get("attributes") if isinstance(e.get("attributes"), dict) else {},
         "created_at": str(e.get("created_at", "") or ""),

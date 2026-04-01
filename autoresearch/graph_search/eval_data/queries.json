@@ -1,0 +1,92 @@
+[
+  {
+    "id": "q1_regulation_supporters",
+    "query": "Who supports the EU AI Act and why?",
+    "context": "Analyzing stakeholder positions on AI regulation",
+    "gold_edge_uuids": ["e05", "e13"],
+    "gold_node_uuids": ["n07", "n16", "n01"],
+    "gold_facts_keywords": ["balanced", "Brad Smith", "EFF", "cautious support"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "q2_regulation_opponents",
+    "query": "Which entities oppose or criticize the AI Act?",
+    "context": "Understanding opposition to AI regulation",
+    "gold_edge_uuids": ["e06", "e10"],
+    "gold_node_uuids": ["n08", "n12"],
+    "gold_facts_keywords": ["innovation-killing", "Elon Musk", "Mistral", "disproportionate"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "q3_market_impact",
+    "query": "What is the financial and market impact of the AI Act?",
+    "context": "Report section on economic consequences",
+    "gold_edge_uuids": ["e09"],
+    "gold_node_uuids": ["n11", "n09", "n10"],
+    "gold_facts_keywords": ["Goldman Sachs", "15%", "correction", "compliance tools", "Nvidia"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "q4_media_coverage",
+    "query": "How has media covered the AI regulation story?",
+    "context": "Analyzing media response",
+    "gold_edge_uuids": ["e11", "e12"],
+    "gold_node_uuids": ["n13", "n14"],
+    "gold_facts_keywords": ["Reuters", "Bloomberg", "analysis", "coverage"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "q5_breach_response",
+    "query": "What happened after the TechVault data breach?",
+    "context": "Crisis communication analysis",
+    "gold_edge_uuids": ["e14", "e15", "e16"],
+    "gold_node_uuids": ["n17", "n18", "n19", "n20"],
+    "gold_facts_keywords": ["CrowdStrike", "FTC", "investigation", "Sarah Chen", "CEO"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "q6_pharma_deal",
+    "query": "What are the key dynamics of the Pfizer-Seagen acquisition?",
+    "context": "M&A analysis",
+    "gold_edge_uuids": ["e17", "e18", "e19", "e20", "e21", "e22"],
+    "gold_node_uuids": ["n21", "n22", "n23", "n24", "n25"],
+    "gold_facts_keywords": ["$68 billion", "Roche", "counter-bid", "oncology", "Doctors Without Borders", "cancer drug pricing"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "q7_regulatory_bodies",
+    "query": "Which regulatory bodies are involved across all scenarios and what actions did they take?",
+    "context": "Cross-topic regulatory analysis",
+    "gold_edge_uuids": ["e02", "e03", "e04", "e16", "e21", "e22"],
+    "gold_node_uuids": ["n01", "n20"],
+    "gold_facts_keywords": ["European Commission", "FTC", "investigation", "risk assessments", "approve"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "q8_executive_reactions",
+    "query": "How have tech executives reacted to recent regulatory developments?",
+    "context": "Leadership opinion analysis",
+    "gold_edge_uuids": ["e05", "e06", "e08"],
+    "gold_node_uuids": ["n07", "n08", "n10"],
+    "gold_facts_keywords": ["Brad Smith", "balanced", "Elon Musk", "innovation-killing", "Jensen Huang", "compliance tools"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "q9_opposition_pattern",
+    "query": "What patterns emerge in how organizations oppose corporate or regulatory actions?",
+    "context": "Pattern analysis across topics",
+    "gold_edge_uuids": ["e06", "e10", "e20"],
+    "gold_node_uuids": ["n08", "n12", "n25"],
+    "gold_facts_keywords": ["Musk", "Mistral", "Doctors Without Borders", "criticized", "protested", "opposes"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "q10_collaboration_investigation",
+    "query": "What collaborative and investigative relationships exist in the graph?",
+    "context": "Relationship pattern analysis",
+    "gold_edge_uuids": ["e15", "e17"],
+    "gold_node_uuids": ["n19", "n17", "n21", "n22"],
+    "gold_facts_keywords": ["CrowdStrike", "investigate", "Pfizer", "Seagen", "acquisition"],
+    "difficulty": "hard"
+  }
+]

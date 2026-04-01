@@ -1,0 +1,24 @@
+{
+  "entity_types": [
+    {"name": "Executive", "description": "C-suite executives and corporate leaders", "attributes": [{"name": "title", "type": "text", "description": "Job title"}]},
+    {"name": "Official", "description": "Government officials, politicians, regulators", "attributes": [{"name": "position", "type": "text", "description": "Official position"}]},
+    {"name": "Journalist", "description": "Reporters and media professionals", "attributes": [{"name": "beat", "type": "text", "description": "Coverage area"}]},
+    {"name": "Company", "description": "Corporations and business entities", "attributes": [{"name": "industry", "type": "text", "description": "Industry sector"}]},
+    {"name": "GovernmentAgency", "description": "Government departments and regulatory bodies", "attributes": [{"name": "jurisdiction", "type": "text", "description": "Geographic jurisdiction"}]},
+    {"name": "MediaOutlet", "description": "News organizations and media companies", "attributes": [{"name": "media_type", "type": "text", "description": "Type of media"}]},
+    {"name": "NGO", "description": "Non-governmental and advocacy organizations", "attributes": [{"name": "focus_area", "type": "text", "description": "Area of focus"}]},
+    {"name": "University", "description": "Academic institutions", "attributes": [{"name": "location", "type": "text", "description": "Location"}]},
+    {"name": "Person", "description": "Any individual not fitting other types", "attributes": [{"name": "role", "type": "text", "description": "Role or occupation"}]},
+    {"name": "Organization", "description": "Any organization not fitting other types", "attributes": [{"name": "org_type", "type": "text", "description": "Type of organization"}]}
+  ],
+  "edge_types": [
+    {"name": "WORKS_FOR", "description": "Employment or leadership relationship", "source_targets": [{"source": "Person", "target": "Organization"}]},
+    {"name": "AFFILIATED_WITH", "description": "Association or membership", "source_targets": [{"source": "Person", "target": "Organization"}]},
+    {"name": "REGULATES", "description": "Regulatory oversight relationship", "source_targets": [{"source": "GovernmentAgency", "target": "Company"}]},
+    {"name": "REPORTS_ON", "description": "Covers or analyzes a subject", "source_targets": [{"source": "MediaOutlet", "target": "Organization"}]},
+    {"name": "SUPPORTS", "description": "Endorses or supports position", "source_targets": [{"source": "Organization", "target": "Organization"}]},
+    {"name": "OPPOSES", "description": "Criticizes or opposes position", "source_targets": [{"source": "Organization", "target": "Organization"}]},
+    {"name": "COLLABORATES_WITH", "description": "Partnership or cooperation", "source_targets": [{"source": "Organization", "target": "Organization"}]},
+    {"name": "COMPETES_WITH", "description": "Market competition", "source_targets": [{"source": "Company", "target": "Company"}]}
+  ]
+}

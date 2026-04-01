@@ -15,12 +15,30 @@ def test_validate_rejects_semicolon():
         validate_read_only_kuzu_query("MATCH (n:Node) RETURN n.id; MATCH (m:Node) RETURN m.id")
 
 
+def test_validate_accepts_semicolon_inside_quoted_literals():
+    validate_read_only_kuzu_query("MATCH (n:Node) RETURN 'a;b' AS x")
+    validate_read_only_kuzu_query('MATCH (n:Node) RETURN "a;b" AS x')
+    validate_read_only_kuzu_query("MATCH (n:Node) RETURN 'a\\';b' AS x")
+    validate_read_only_kuzu_query("MATCH (n:Node) RETURN 'it''s;fine' AS x")
+
+
+def test_validate_rejects_semicolon_after_quoted_literal():
+    with pytest.raises(StorageError, match="Multiple statements"):
+        validate_read_only_kuzu_query("MATCH (n:Node) RETURN 'only one' ; MATCH (m) RETURN m")
+
+
 def test_validate_accepts_match():
     validate_read_only_kuzu_query("MATCH (n:Node) RETURN n.id LIMIT 5")
 
 
 def test_validate_call_limited():
     validate_read_only_kuzu_query("CALL SHOW_TABLES() RETURN *")
+
+
+def test_validate_rejects_caller_not_call_statement():
+    """CALLER must not be treated as CALL; prefix must be CALL + whitespace."""
+    with pytest.raises(StorageError, match="must start with"):
+        validate_read_only_kuzu_query("CALLER (n:Node) RETURN n")
 
 
 def test_validate_rejects_unsafe_call():

@@ -177,6 +177,14 @@ class LLMClient:
         return cleaned
 
     @staticmethod
+    def _format_cli_failure(command: str, result: subprocess.CompletedProcess) -> str:
+        """Build a useful error message even when one stream is empty."""
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        details = stderr or stdout or f"{command} exited with code {result.returncode} and produced no output"
+        return f"{command} failed (rc={result.returncode}): {details[:200]}"
+
+    @staticmethod
     def _build_cli_prompt(
         system_text: Optional[str],
         conversation: List[Dict[str, str]],
@@ -450,7 +458,7 @@ class LLMClient:
 
         if result.returncode != 0:
             logger.error("Claude CLI (text) error (rc=%d): %s", result.returncode, result.stderr[:300])
-            raise RuntimeError(f"Claude CLI failed: {result.stderr[:200]}")
+            raise RuntimeError(self._format_cli_failure("Claude CLI", result))
 
         content = result.stdout.strip()
         if not content:
@@ -480,7 +488,7 @@ class LLMClient:
 
         if result.returncode != 0:
             logger.error("Claude CLI (json) error (rc=%d): %s", result.returncode, result.stderr[:300])
-            raise RuntimeError(f"Claude CLI (json) failed: {result.stderr[:200]}")
+            raise RuntimeError(self._format_cli_failure("Claude CLI (json)", result))
 
         raw = result.stdout.strip()
         if not raw:

@@ -250,9 +250,12 @@ def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
             'or use LLM_PROVIDER=claude-cli/codex-cli.'
         )
 
-    base_url_display = (
-        resolved.base_url[:40] + "..." if resolved.base_url else "default"
-    )
+    if not resolved.base_url:
+        base_url_display = "default"
+    elif len(resolved.base_url) > 40:
+        base_url_display = resolved.base_url[:40] + "..."
+    else:
+        base_url_display = resolved.base_url
     logger.info(
         "%s provider=%s, model=%s, base_url=%s",
         resolved.label,

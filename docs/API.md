@@ -84,8 +84,10 @@ Generated from Flask route definitions. Base URL: `http://localhost:5001`
 | GET    | `/<report_id>/section/<index>`            | Get single section content                 |
 | GET    | `/check/<simulation_id>`                  | Check report status for simulation         |
 | GET    | `/<report_id>/agent-log`                  | Get agent execution log                    |
+| GET    | `/<report_id>/agent-log/poll`            | Same JSON snapshot as `agent-log` (poll alias) |
 | GET    | `/<report_id>/agent-log/stream`           | Get complete agent log                     |
 | GET    | `/<report_id>/console-log`               | Get console output log                     |
+| GET    | `/<report_id>/console-log/poll`         | Same JSON snapshot as `console-log` (poll alias) |
 | GET    | `/<report_id>/console-log/stream`        | Get complete console log                   |
 | POST   | `/compare`                                | Compare two reports side-by-side           |
 | GET    | `/<report_id>/pdf`                        | Export report as branded PDF               |

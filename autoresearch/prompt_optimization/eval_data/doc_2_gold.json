@@ -1,0 +1,35 @@
+{
+  "entities": [
+    {"name": "TechVault Inc.", "type": "Company"},
+    {"name": "Sarah Chen", "type": "Executive"},
+    {"name": "David Park", "type": "Executive"},
+    {"name": "Emily Zhang", "type": "Journalist"},
+    {"name": "The Verge", "type": "MediaOutlet"},
+    {"name": "CrowdStrike", "type": "Company"},
+    {"name": "Lazarus Group", "type": "Organization"},
+    {"name": "Federal Trade Commission", "type": "GovernmentAgency"},
+    {"name": "Lina Khan", "type": "Official"},
+    {"name": "Ron Wyden", "type": "Official"},
+    {"name": "American Civil Liberties Union", "type": "NGO"},
+    {"name": "JPMorgan Chase", "type": "Company"},
+    {"name": "Cloudflare", "type": "Company"},
+    {"name": "Mike Rogers", "type": "Person"},
+    {"name": "Public Citizen", "type": "NGO"},
+    {"name": "Experian", "type": "Company"}
+  ],
+  "relationships": [
+    {"source": "Sarah Chen", "target": "TechVault Inc.", "type": "WORKS_FOR"},
+    {"source": "David Park", "target": "TechVault Inc.", "type": "WORKS_FOR"},
+    {"source": "Emily Zhang", "target": "The Verge", "type": "WORKS_FOR"},
+    {"source": "Emily Zhang", "target": "TechVault Inc.", "type": "REPORTS_ON"},
+    {"source": "CrowdStrike", "target": "TechVault Inc.", "type": "COLLABORATES_WITH"},
+    {"source": "Federal Trade Commission", "target": "TechVault Inc.", "type": "REGULATES"},
+    {"source": "Lina Khan", "target": "Federal Trade Commission", "type": "WORKS_FOR"},
+    {"source": "American Civil Liberties Union", "target": "TechVault Inc.", "type": "OPPOSES"},
+    {"source": "JPMorgan Chase", "target": "TechVault Inc.", "type": "REPORTS_ON"},
+    {"source": "Mike Rogers", "target": "TechVault Inc.", "type": "AFFILIATED_WITH"},
+    {"source": "Public Citizen", "target": "TechVault Inc.", "type": "OPPOSES"},
+    {"source": "TechVault Inc.", "target": "Experian", "type": "COLLABORATES_WITH"},
+    {"source": "Cloudflare", "target": "TechVault Inc.", "type": "COMPETES_WITH"}
+  ]
+}

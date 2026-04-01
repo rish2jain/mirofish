@@ -41,12 +41,56 @@ _ALLOWED_READ_ONLY_CALL_PROCS = frozenset(
 )
 
 
+def _contains_statement_semicolon(s: str) -> bool:
+    """
+    True if s has a semicolon outside single- or double-quoted literals.
+    Tracks quote state; treats \\ as escaping the next char inside quotes;
+    treats '' inside single-quoted and "" inside double-quoted as one escaped quote (Cypher-style).
+    """
+    i = 0
+    n = len(s)
+    in_single = False
+    in_double = False
+    while i < n:
+        c = s[i]
+        if in_single:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == "'" and i + 1 < n and s[i + 1] == "'":
+                i += 2
+                continue
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == '"' and i + 1 < n and s[i + 1] == '"':
+                i += 2
+                continue
+            if c == '"':
+                in_double = False
+            i += 1
+            continue
+        if c == ";":
+            return True
+        if c == "'":
+            in_single = True
+        elif c == '"':
+            in_double = True
+        i += 1
+    return False
+
+
 def validate_read_only_kuzu_query(query: str) -> None:
     """Reject writes and multi-statements for ad-hoc Cypher."""
     s = (query or "").strip()
     if not s:
         raise StorageError("Empty query")
-    if ";" in s:
+    if _contains_statement_semicolon(s):
         raise StorageError("Multiple statements are not allowed")
     if _READ_FORBIDDEN.search(s):
         raise StorageError("Query contains disallowed keywords")
@@ -57,8 +101,10 @@ def validate_read_only_kuzu_query(query: str) -> None:
         or ul.startswith("CALL ")
         or ul.startswith("OPTIONAL MATCH")
     ):
-        raise StorageError("Query must start with MATCH, OPTIONAL MATCH, RETURN, or CALL")
-    if ul.startswith("CALL"):
+        raise StorageError(
+            "Query must start with MATCH, OPTIONAL MATCH, RETURN, or CALL (with a space before the procedure name)"
+        )
+    if ul.startswith("CALL "):
         m = _CALL_PROC_NAME.match(s)
         if not m or m.group(1).upper() not in _ALLOWED_READ_ONLY_CALL_PROCS:
             raise StorageError("CALL is limited to supported read-only procedures")

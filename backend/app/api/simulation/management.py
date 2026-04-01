@@ -26,19 +26,17 @@ def _recent_posts_summary(simulation_id: str, platform: str, limit: int = 5) -> 
     if not os.path.exists(db_path):
         return {"platform": platform, "total": 0, "posts": []}
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
     try:
-        cursor.execute("SELECT * FROM post ORDER BY created_at DESC LIMIT ?", (limit,))
-        posts = [dict(row) for row in cursor.fetchall()]
-        cursor.execute("SELECT COUNT(*) FROM post")
-        total = int(cursor.fetchone()[0])
-        return {"platform": platform, "total": total, "posts": posts}
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM post ORDER BY created_at DESC LIMIT ?", (limit,))
+            posts = [dict(row) for row in cursor.fetchall()]
+            cursor.execute("SELECT COUNT(*) FROM post")
+            total = int(cursor.fetchone()[0])
+            return {"platform": platform, "total": total, "posts": posts}
     except sqlite3.OperationalError:
         return {"platform": platform, "total": 0, "posts": []}
-    finally:
-        conn.close()
 
 
 def _simulation_compare_payload(simulation_id: str) -> dict:
@@ -414,6 +412,7 @@ def get_simulation_history():
 
     Used for homepage historical project display. Returns a simulation list enriched with
     project name, description, and other detailed information.
+    Each item's ``version`` is ``Config.VERSION`` (``mirofish-backend`` distribution / pyproject).
 
     Query parameters:
         limit: Maximum number of results (default 20)
@@ -436,7 +435,7 @@ def get_simulation_history():
                     "total_rounds": 120,
                     "current_round": 120,
                     "report_id": "report_xxxx",
-                    "version": "v1.0.2"
+                    "version": "v0.1.0"
                 },
                 ...
             ],
@@ -495,8 +494,7 @@ def get_simulation_history():
             # Get the associated report_id (find the latest report for this simulation)
             sim_dict["report_id"] = _get_report_id_for_simulation(sim.simulation_id)
             
-            # Add version number
-            sim_dict["version"] = "v1.0.2"
+            sim_dict["version"] = Config.VERSION
             
             # Format date
             try:

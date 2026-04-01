@@ -488,7 +488,14 @@ def graph_cypher_query():
     data = request.get_json(silent=True) or {}
     graph_id = data.get("graph_id")
     query = (data.get("query") or "").strip()
-    max_rows = int(data.get("max_rows") or 500)
+    raw_max_rows = data.get("max_rows")
+    if raw_max_rows is None or raw_max_rows == "":
+        max_rows = 500
+    else:
+        try:
+            max_rows = int(raw_max_rows)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Invalid max_rows"}), 400
     if not graph_id:
         return jsonify({"success": False, "error": "graph_id required"}), 400
     if not query:

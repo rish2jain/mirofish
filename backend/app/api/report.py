@@ -9,7 +9,7 @@ import queue
 import re
 import threading
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 import nh3
 from flask import make_response, jsonify, request, send_file, Response, stream_with_context
@@ -28,6 +28,31 @@ logger = get_logger('mirofish.api.report')
 CHAT_STREAM_HEARTBEAT_POLL_S = 5
 # Hard cap for how long we wait for the narrative stream (reader runs in a daemon thread).
 CHAT_STREAM_OVERALL_TIMEOUT_S = 900
+# CLI / no-SDK chat fallback sends one-shot text; chunk for SSE so clients avoid huge single JSON payloads.
+CHAT_FALLBACK_DELTA_MAX_CHARS = 1024
+
+
+def _iter_narrative_fallback_chunks(text: str, max_chars: int = CHAT_FALLBACK_DELTA_MAX_CHARS) -> Iterator[str]:
+    """Yield segments of at most ``max_chars``, breaking at the last newline inside each window when possible."""
+    if not text:
+        return
+    mc = max(1, max_chars)
+    i = 0
+    n = len(text)
+    while i < n:
+        end = min(i + mc, n)
+        if end < n:
+            window = text[i:end]
+            nl = window.rfind("\n")
+            if nl > 0:
+                end = i + nl + 1
+            elif nl == 0:
+                end = i + 1
+        chunk = text[i:end]
+        if chunk:
+            yield chunk
+        i = end
+
 
 # Whitelist for report PDF/HTML export (markdown output + optional <pre> fallback)
 _PDF_HTML_ALLOWED_TAGS = frozenset({
@@ -703,11 +728,12 @@ def chat_with_report_agent_stream():
 
             try:
                 if not buf:
-                    # CLI / no SDK stream: one-shot answer
+                    # CLI / no SDK stream: one-shot answer, chunked for SSE consumers
                     result = agent.chat(message=message, chat_history=chat_history)
                     text = (result or {}).get("response") or ""
-                    yield f"data: {json.dumps({'delta': text}, ensure_ascii=False)}\n\n"
-                    buf.append(text)
+                    for piece in _iter_narrative_fallback_chunks(text):
+                        buf.append(piece)
+                        yield f"data: {json.dumps({'delta': piece}, ensure_ascii=False)}\n\n"
             except Exception as exc:
                 yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
                 return
@@ -1084,13 +1110,13 @@ def stream_console_log(report_id: str):
         }), 500
 
 
-@report_bp.route("/<report_id>/agent-log/sse", methods=["GET"])
-def sse_agent_log(report_id: str):
+@report_bp.route("/<report_id>/agent-log/poll", methods=["GET"])
+def poll_agent_log(report_id: str):
     """
-    Single JSON snapshot of agent log lines from ``from_line`` (path kept for compatibility).
+    Single JSON snapshot of agent log lines from ``from_line`` (same payload as ``GET .../agent-log``).
 
-    Clients should poll this or ``GET .../agent-log`` on a short interval instead of holding
-    an SSE connection.
+    Use this path when you want a URL that names polling explicitly; prefer ``GET .../agent-log``
+    for the canonical incremental log fetch.
     """
     try:
         from_line = request.args.get("from_line", 0, type=int)
@@ -1101,13 +1127,13 @@ def sse_agent_log(report_id: str):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@report_bp.route("/<report_id>/console-log/sse", methods=["GET"])
-def sse_console_log(report_id: str):
+@report_bp.route("/<report_id>/console-log/poll", methods=["GET"])
+def poll_console_log(report_id: str):
     """
-    Single JSON snapshot of console log lines from ``from_line`` (path kept for compatibility).
+    Single JSON snapshot of console log lines from ``from_line`` (same payload as ``GET .../console-log``).
 
-    Clients should poll this or ``GET .../console-log`` on a short interval instead of holding
-    an SSE connection.
+    Use this path when you want a URL that names polling explicitly; prefer ``GET .../console-log``
+    for the canonical incremental log fetch.
     """
     try:
         from_line = request.args.get("from_line", 0, type=int)

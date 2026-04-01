@@ -1,5 +1,7 @@
 """Unit tests for LLMClient helpers (no live API calls)."""
 
+import subprocess
+
 import pytest
 
 from app.utils.llm_client import LLMClient
@@ -94,3 +96,36 @@ def test_chat_stream_text_warns_when_streaming_unsupported():
     with pytest.warns(UserWarning, match="supports_streaming"):
         gen = c.chat_stream_text([])
         assert list(gen) == []
+
+
+def test_format_cli_failure_prefers_stderr():
+    result = subprocess.CompletedProcess(
+        args=["claude"],
+        returncode=1,
+        stdout="",
+        stderr="permission denied",
+    )
+    assert LLMClient._format_cli_failure("Claude CLI", result) == "Claude CLI failed (rc=1): permission denied"
+
+
+def test_format_cli_failure_falls_back_to_stdout():
+    result = subprocess.CompletedProcess(
+        args=["claude"],
+        returncode=1,
+        stdout="authentication required",
+        stderr="",
+    )
+    assert LLMClient._format_cli_failure("Claude CLI", result) == "Claude CLI failed (rc=1): authentication required"
+
+
+def test_format_cli_failure_handles_empty_streams():
+    result = subprocess.CompletedProcess(
+        args=["claude"],
+        returncode=1,
+        stdout="",
+        stderr="",
+    )
+    assert (
+        LLMClient._format_cli_failure("Claude CLI", result)
+        == "Claude CLI failed (rc=1): Claude CLI exited with code 1 and produced no output"
+    )

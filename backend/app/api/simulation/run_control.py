@@ -109,6 +109,8 @@ def delete_simulation():
 
     Used when a client created a simulation but failed during prepare/start.
     Stops an active runner when possible, then deletes disk state under uploads.
+    Each cleanup step runs independently; failures are logged and returned under
+    ``data.cleanup_issues`` when present.
     """
     try:
         data = request.get_json() or {}
@@ -124,30 +126,81 @@ def delete_simulation():
         if path_err or not sim_dir:
             return jsonify({"success": False, "error": path_err or "Invalid simulation path"}), 400
 
+        cleanup_issues: list[dict[str, str]] = []
+
         try:
             SimulationRunner.stop_simulation(simulation_id)
-        except ValueError:
-            pass
+        except ValueError as e:
+            logger.debug(
+                "delete_simulation: stop_simulation skipped for %s: %s",
+                simulation_id,
+                e,
+            )
+        except Exception as e:
+            logger.warning(
+                "delete_simulation: stop_simulation failed for %s: %s",
+                simulation_id,
+                e,
+                exc_info=True,
+            )
+            cleanup_issues.append({"step": "stop_simulation", "error": str(e)})
 
-        SimulationRunner.cleanup_simulation_logs(simulation_id)
+        try:
+            cleanup_result = SimulationRunner.cleanup_simulation_logs(simulation_id)
+            if cleanup_result:
+                for err in cleanup_result.get("errors") or []:
+                    logger.warning(
+                        "delete_simulation: cleanup_simulation_logs partial failure %s: %s",
+                        simulation_id,
+                        err,
+                    )
+                    cleanup_issues.append({"step": "cleanup_simulation_logs", "error": str(err)})
+        except Exception as e:
+            logger.warning(
+                "delete_simulation: cleanup_simulation_logs failed for %s: %s",
+                simulation_id,
+                e,
+                exc_info=True,
+            )
+            cleanup_issues.append({"step": "cleanup_simulation_logs", "error": str(e)})
 
-        manager = SimulationManager()
-        manager.remove_simulation(simulation_id)
+        try:
+            manager = SimulationManager()
+            manager.remove_simulation(simulation_id)
+        except Exception as e:
+            logger.warning(
+                "delete_simulation: remove_simulation failed for %s: %s",
+                simulation_id,
+                e,
+                exc_info=True,
+            )
+            cleanup_issues.append({"step": "remove_simulation", "error": str(e)})
 
         removed_dir = False
         if os.path.isdir(sim_dir):
-            shutil.rmtree(sim_dir, ignore_errors=True)
-            removed_dir = True
+            try:
+                shutil.rmtree(sim_dir)
+                removed_dir = True
+            except Exception as e:
+                logger.warning(
+                    "delete_simulation: rmtree failed path=%s simulation_id=%s: %s",
+                    sim_dir,
+                    simulation_id,
+                    e,
+                    exc_info=True,
+                )
+                cleanup_issues.append(
+                    {"step": "remove_directory", "path": sim_dir, "error": str(e)}
+                )
 
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "simulation_id": simulation_id,
-                    "removed_directory": removed_dir,
-                },
-            }
-        )
+        data_out = {
+            "simulation_id": simulation_id,
+            "removed_directory": removed_dir,
+        }
+        if cleanup_issues:
+            data_out["cleanup_issues"] = cleanup_issues
+
+        return jsonify({"success": True, "data": data_out})
 
     except Exception as e:
         logger.error(f"Failed to delete simulation: {str(e)}")

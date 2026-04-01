@@ -145,6 +145,8 @@ class ReportAgent:
         self.report_logger: Optional[ReportLogger] = None
         # Console logger (initialized in generate_report)
         self.console_logger: Optional[ReportConsoleLogger] = None
+        # Chat/report markdown cache: None = not loaded (see _get_cached_report_content); str = cached
+        self._chat_report_markdown: Optional[str] = None
 
         logger.info(f"ReportAgent initialized: graph_id={graph_id}, simulation_id={simulation_id}")
 
@@ -1364,7 +1366,7 @@ class ReportAgent:
 
     def _get_cached_report_content(self) -> str:
         """Load report markdown once per agent instance; return truncated prompt text."""
-        if getattr(self, "_chat_report_markdown", None) is None:
+        if self._chat_report_markdown is None:
             self._chat_report_markdown = ""
             try:
                 report = ReportManager.get_report_by_simulation(self.simulation_id)

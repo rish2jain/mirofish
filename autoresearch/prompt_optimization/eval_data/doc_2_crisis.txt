@@ -1,0 +1,9 @@
+A massive data breach at TechVault Inc. exposed 45 million customer records on February 28, 2026. CEO Sarah Chen held a press conference apologizing for the incident. Chief Information Security Officer David Park resigned immediately.
+
+The breach was first reported by journalist Emily Zhang at The Verge, who obtained leaked internal documents. Cybersecurity firm CrowdStrike was hired to investigate and attributed the attack to the Lazarus Group, a North Korean state-sponsored hacking collective.
+
+The Federal Trade Commission opened an investigation led by Chair Lina Khan. Senator Ron Wyden called for "immediate legislative action" and referenced the breach in his Data Privacy Act proposal. The American Civil Liberties Union filed a class-action lawsuit on behalf of affected customers.
+
+TechVault's stock dropped 32% in two days. JPMorgan Chase downgraded the stock to "sell." Competitor Cloudflare saw a 12% stock bump as customers migrated. TechVault board member and former NSA director Mike Rogers urged the company to cooperate fully with federal investigators.
+
+Consumer advocacy group Public Citizen demanded TechVault offer free credit monitoring. The company partnered with Experian to provide identity protection services.

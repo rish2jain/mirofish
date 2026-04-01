@@ -1,0 +1,268 @@
+[
+  {
+    "id": "clean_json",
+    "description": "Perfect JSON response",
+    "raw": "{\"entities\": [{\"name\": \"Pfizer\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Pfizer", "type": "Company"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "markdown_fenced",
+    "description": "JSON inside markdown code fence",
+    "raw": "```json\n{\"entities\": [{\"name\": \"OpenAI\", \"type\": \"Company\"}], \"relationships\": []}\n```",
+    "expected": {"entities": [{"name": "OpenAI", "type": "Company"}], "relationships": []},
+    "category": "markdown"
+  },
+  {
+    "id": "markdown_no_lang",
+    "description": "JSON inside markdown fence without language tag",
+    "raw": "```\n{\"entities\": [{\"name\": \"Meta\", \"type\": \"Company\"}], \"relationships\": []}\n```",
+    "expected": {"entities": [{"name": "Meta", "type": "Company"}], "relationships": []},
+    "category": "markdown"
+  },
+  {
+    "id": "xml_json_output",
+    "description": "JSON inside <json_output> tags",
+    "raw": "<json_output>\n{\"entities\": [{\"name\": \"Google\", \"type\": \"Company\"}], \"relationships\": []}\n</json_output>",
+    "expected": {"entities": [{"name": "Google", "type": "Company"}], "relationships": []},
+    "category": "xml"
+  },
+  {
+    "id": "xml_partial_tags",
+    "description": "JSON with only opening <json_output> tag",
+    "raw": "<json_output>\n{\"entities\": [{\"name\": \"Nvidia\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Nvidia", "type": "Company"}], "relationships": []},
+    "category": "xml"
+  },
+  {
+    "id": "thinking_block_before",
+    "description": "Thinking block followed by JSON",
+    "raw": "<thinking>\nLet me analyze the text carefully...\nI see several entities here.\n</thinking>\n{\"entities\": [{\"name\": \"Tesla\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Tesla", "type": "Company"}], "relationships": []},
+    "category": "thinking"
+  },
+  {
+    "id": "think_block_short",
+    "description": "Short <think> variant block followed by JSON",
+    "raw": "<think>Analyzing entities in the text.</think>\n{\"entities\": [{\"name\": \"Apple\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Apple", "type": "Company"}], "relationships": []},
+    "category": "thinking"
+  },
+  {
+    "id": "thinking_only_json_inside",
+    "description": "Entire response in thinking block with JSON inside",
+    "raw": "<thinking>\nI need to extract entities.\n{\"entities\": [{\"name\": \"Amazon\", \"type\": \"Company\"}], \"relationships\": []}\n</thinking>",
+    "expected": {"entities": [{"name": "Amazon", "type": "Company"}], "relationships": []},
+    "category": "thinking"
+  },
+  {
+    "id": "preamble_then_json",
+    "description": "Natural language preamble before JSON",
+    "raw": "Here are the extracted entities and relationships:\n\n{\"entities\": [{\"name\": \"Microsoft\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Microsoft", "type": "Company"}], "relationships": []},
+    "category": "preamble"
+  },
+  {
+    "id": "postamble_after_json",
+    "description": "JSON followed by explanation",
+    "raw": "{\"entities\": [{\"name\": \"Samsung\", \"type\": \"Company\"}], \"relationships\": []}\n\nI found 1 entity in the text above.",
+    "expected": {"entities": [{"name": "Samsung", "type": "Company"}], "relationships": []},
+    "category": "preamble"
+  },
+  {
+    "id": "preamble_and_fence",
+    "description": "Preamble + markdown-fenced JSON + postamble",
+    "raw": "Based on my analysis of the text, here is the extraction:\n\n```json\n{\"entities\": [{\"name\": \"Intel\", \"type\": \"Company\"}], \"relationships\": []}\n```\n\nI identified one company entity.",
+    "expected": {"entities": [{"name": "Intel", "type": "Company"}], "relationships": []},
+    "category": "complex"
+  },
+  {
+    "id": "thinking_then_fence",
+    "description": "Thinking block + markdown-fenced JSON",
+    "raw": "<thinking>\nLet me identify entities.\n</thinking>\n\n```json\n{\"entities\": [{\"name\": \"AMD\", \"type\": \"Company\"}], \"relationships\": []}\n```",
+    "expected": {"entities": [{"name": "AMD", "type": "Company"}], "relationships": []},
+    "category": "complex"
+  },
+  {
+    "id": "xml_response_wrapper",
+    "description": "JSON wrapped in <response> tags",
+    "raw": "<response>\n{\"entities\": [{\"name\": \"Oracle\", \"type\": \"Company\"}], \"relationships\": []}\n</response>",
+    "expected": {"entities": [{"name": "Oracle", "type": "Company"}], "relationships": []},
+    "category": "xml"
+  },
+  {
+    "id": "array_wrapped_single",
+    "description": "JSON object wrapped in a single-element array",
+    "raw": "[{\"entities\": [{\"name\": \"IBM\", \"type\": \"Company\"}], \"relationships\": []}]",
+    "expected": {"entities": [{"name": "IBM", "type": "Company"}], "relationships": []},
+    "category": "array"
+  },
+  {
+    "id": "array_with_expected_keys",
+    "description": "Multi-element array where target has expected keys",
+    "raw": "[{\"metadata\": \"ignored\"}, {\"entities\": [{\"name\": \"SAP\", \"type\": \"Company\"}], \"relationships\": []}]",
+    "expected": {"entities": [{"name": "SAP", "type": "Company"}], "relationships": []},
+    "category": "array"
+  },
+  {
+    "id": "trailing_comma",
+    "description": "JSON with trailing comma (common LLM mistake)",
+    "raw": "{\"entities\": [{\"name\": \"Uber\", \"type\": \"Company\"},], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Uber", "type": "Company"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "single_quotes",
+    "description": "JSON with single quotes instead of double",
+    "raw": "{'entities': [{'name': 'Lyft', 'type': 'Company'}], 'relationships': []}",
+    "expected": {"entities": [{"name": "Lyft", "type": "Company"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "escaped_newlines_in_values",
+    "description": "JSON with literal newlines inside string values",
+    "raw": "{\"entities\": [{\"name\": \"SpaceX\", \"type\": \"Company\", \"summary\": \"Founded by\\nElon Musk\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "SpaceX", "type": "Company", "summary": "Founded by\nElon Musk"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "unicode_entities",
+    "description": "JSON with unicode entity names",
+    "raw": "{\"entities\": [{\"name\": \"\\u5357\\u4eac\\u5927\\u5b66\", \"type\": \"University\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "\u5357\u4eac\u5927\u5b66", "type": "University"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "nested_thinking_and_xml",
+    "description": "Thinking + xml_output + markdown fence (worst case)",
+    "raw": "<thinking>I need to extract entities carefully.</thinking>\n\nHere is my extraction:\n\n<json_output>\n```json\n{\"entities\": [{\"name\": \"Anthropic\", \"type\": \"Company\"}], \"relationships\": []}\n```\n</json_output>",
+    "expected": {"entities": [{"name": "Anthropic", "type": "Company"}], "relationships": []},
+    "category": "complex"
+  },
+  {
+    "id": "empty_response",
+    "description": "Empty string response",
+    "raw": "",
+    "expected": null,
+    "category": "error"
+  },
+  {
+    "id": "pure_text_no_json",
+    "description": "Natural language response with no JSON at all",
+    "raw": "I was unable to extract any entities from the provided text as it contains no relevant information.",
+    "expected": null,
+    "category": "error"
+  },
+  {
+    "id": "double_fence",
+    "description": "Accidentally double-fenced JSON",
+    "raw": "```\n```json\n{\"entities\": [{\"name\": \"Stripe\", \"type\": \"Company\"}], \"relationships\": []}\n```\n```",
+    "expected": {"entities": [{"name": "Stripe", "type": "Company"}], "relationships": []},
+    "category": "complex"
+  },
+  {
+    "id": "comments_in_json",
+    "description": "JSON with JS-style comments (common LLM mistake)",
+    "raw": "{\n  // Entity extraction results\n  \"entities\": [{\"name\": \"Palantir\", \"type\": \"Company\"}],\n  \"relationships\": []\n}",
+    "expected": {"entities": [{"name": "Palantir", "type": "Company"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "truncated_json",
+    "description": "JSON cut off mid-stream (max_tokens hit)",
+    "raw": "{\"entities\": [{\"name\": \"Coinbase\", \"type\": \"Company\"}, {\"name\": \"Binance\", \"type\": \"Comp",
+    "expected": null,
+    "category": "error"
+  },
+  {
+    "id": "multiline_thinking_nested_fence",
+    "description": "Multi-paragraph thinking + nested code blocks",
+    "raw": "<thinking>\nFirst, let me identify the key players.\n\nThere are several companies mentioned:\n- Acme Corp\n- Globex\n\nI'll structure my response as JSON.\n</thinking>\n\nHere is the result:\n\n```\n{\"entities\": [{\"name\": \"Acme Corp\", \"type\": \"Company\"}, {\"name\": \"Globex\", \"type\": \"Company\"}], \"relationships\": [{\"source\": \"Acme Corp\", \"target\": \"Globex\", \"type\": \"COMPETES_WITH\", \"fact\": \"Market rivals\"}]}\n```",
+    "expected": {"entities": [{"name": "Acme Corp", "type": "Company"}, {"name": "Globex", "type": "Company"}], "relationships": [{"source": "Acme Corp", "target": "Globex", "type": "COMPETES_WITH", "fact": "Market rivals"}]},
+    "category": "complex"
+  },
+  {
+    "id": "string_with_apostrophe_single_quote",
+    "description": "Single-quoted JSON where values contain apostrophes",
+    "raw": "{'entities': [{'name': \"O'Reilly Media\", 'type': 'Company'}], 'relationships': []}",
+    "expected": {"entities": [{"name": "O'Reilly Media", "type": "Company"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "thinking_with_fake_json_inside",
+    "description": "Thinking block contains partial JSON (planning), real JSON follows",
+    "raw": "<thinking>\nI'll structure it like: {\"entities\": [{\"name\": \"WRONG\"}]}\nActually, let me reconsider...\n</thinking>\n{\"entities\": [{\"name\": \"Correct Corp\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Correct Corp", "type": "Company"}], "relationships": []},
+    "category": "thinking"
+  },
+  {
+    "id": "bom_prefix",
+    "description": "UTF-8 BOM before JSON",
+    "raw": "\ufeff{\"entities\": [{\"name\": \"BOM Corp\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "BOM Corp", "type": "Company"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "whitespace_heavy",
+    "description": "Excessive whitespace and newlines in JSON",
+    "raw": "\n\n\n  {  \n  \"entities\"  :  [  \n    {  \"name\"  :  \"Spacey Inc\"  ,  \"type\"  :  \"Company\"  }  \n  ]  ,  \n  \"relationships\"  :  [  ]  \n  }  \n\n",
+    "expected": {"entities": [{"name": "Spacey Inc", "type": "Company"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "multiple_json_objects",
+    "description": "Two JSON objects (model output entities then relationships separately)",
+    "raw": "{\"entities\": [{\"name\": \"First Corp\", \"type\": \"Company\"}]}\n{\"relationships\": [{\"source\": \"First Corp\", \"target\": \"Second Corp\", \"type\": \"COMPETES_WITH\"}]}",
+    "expected": {"entities": [{"name": "First Corp", "type": "Company"}]},
+    "category": "complex"
+  },
+  {
+    "id": "markdown_fence_json5",
+    "description": "Markdown fence with json5 language tag",
+    "raw": "```json5\n{\"entities\": [{\"name\": \"JSON5 Corp\", \"type\": \"Company\"}], \"relationships\": []}\n```",
+    "expected": {"entities": [{"name": "JSON5 Corp", "type": "Company"}], "relationships": []},
+    "category": "markdown"
+  },
+  {
+    "id": "html_entity_in_json",
+    "description": "JSON with HTML entities (e.g. &amp;) in values",
+    "raw": "{\"entities\": [{\"name\": \"AT&T\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "AT&T", "type": "Company"}], "relationships": []},
+    "category": "clean"
+  },
+  {
+    "id": "thinking_no_close_tag",
+    "description": "Unclosed thinking tag followed by JSON",
+    "raw": "<thinking>\nLet me analyze...\n{\"entities\": [{\"name\": \"Unclosed Inc\", \"type\": \"Company\"}], \"relationships\": []}",
+    "expected": {"entities": [{"name": "Unclosed Inc", "type": "Company"}], "relationships": []},
+    "category": "thinking"
+  },
+  {
+    "id": "url_in_value_with_comments",
+    "description": "JSON with a URL containing // in a value, plus a JS comment elsewhere",
+    "raw": "{\n  // extraction result\n  \"entities\": [{\"name\": \"Example Corp\", \"type\": \"Company\", \"summary\": \"See https://example.com/about\"}],\n  \"relationships\": []\n}",
+    "expected": {"entities": [{"name": "Example Corp", "type": "Company", "summary": "See https://example.com/about"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "nested_trailing_commas",
+    "description": "Trailing commas at multiple nesting levels",
+    "raw": "{\"entities\": [{\"name\": \"Nested Corp\", \"type\": \"Company\", \"summary\": \"A company\",},], \"relationships\": [{\"source\": \"Nested Corp\", \"target\": \"Other Corp\", \"type\": \"COMPETES_WITH\",},],}",
+    "expected": {"entities": [{"name": "Nested Corp", "type": "Company", "summary": "A company"}], "relationships": [{"source": "Nested Corp", "target": "Other Corp", "type": "COMPETES_WITH"}]},
+    "category": "malformed"
+  },
+  {
+    "id": "multiline_comments_in_json",
+    "description": "JSON with /* block comments */ (C-style)",
+    "raw": "{\n  /* Entity list */\n  \"entities\": [{\"name\": \"Block Corp\", \"type\": \"Company\"}],\n  /* No relationships found */\n  \"relationships\": []\n}",
+    "expected": {"entities": [{"name": "Block Corp", "type": "Company"}], "relationships": []},
+    "category": "malformed"
+  },
+  {
+    "id": "single_quote_with_contractions",
+    "description": "Single-quoted JSON with English contractions in values",
+    "raw": "{'entities': [{'name': 'Johnson & Johnson', 'type': 'Company', 'summary': \"The company didn't disclose details\"}], 'relationships': []}",
+    "expected": {"entities": [{"name": "Johnson & Johnson", "type": "Company", "summary": "The company didn't disclose details"}], "relationships": []},
+    "category": "malformed"
+  }
+]

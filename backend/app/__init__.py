@@ -37,12 +37,12 @@ def _recover_stuck_statuses(logger) -> None:
             recovered += 1
 
     sim_mgr = SimulationManager()
-    for sim in sim_mgr.list_simulations():
+    for sim in sim_mgr.list_simulations(limit=200):
         if sim.status in (SimulationStatus.PREPARING, SimulationStatus.RUNNING):
             old_status = sim.status.value
             sim.status = SimulationStatus.FAILED
             sim.error = f"Server restarted during {old_status}"
-            sim_mgr._save_simulation_state(sim)
+            sim_mgr.save_simulation(sim)
             logger.warning("Recovered stuck simulation %s (%s → failed)", sim.simulation_id, old_status)
             recovered += 1
 

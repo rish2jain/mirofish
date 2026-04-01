@@ -511,6 +511,14 @@ let lastLayoutGraphId = null
 let lastNodeIdSet = null
 let lastEdgeFpSet = null
 
+const getStoredZoomBehavior = () => graphSvg.value?.__mfZoomBehavior ?? null
+
+const setStoredZoomBehavior = (behavior) => {
+  if (graphSvg.value) {
+    graphSvg.value.__mfZoomBehavior = behavior
+  }
+}
+
 const focusSelectedGraphNode = () => {
   if (!selectedItem.value || selectedItem.value.type !== 'node' || !graphSvg.value || !currentSimulation) return
   const uuid = selectedItem.value.data?.uuid
@@ -520,7 +528,7 @@ const focusSelectedGraphNode = () => {
   const w = graphContainer.value.clientWidth
   const h = graphContainer.value.clientHeight
   const svg = d3.select(graphSvg.value)
-  const z = svg.property('_mfZoom')
+  const z = getStoredZoomBehavior()
   if (!z) return
   const scale = 1.65
   const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(scale).translate(-simNode.x, -simNode.y)
@@ -586,10 +594,10 @@ const renderGraph = () => {
       .on('zoom', (event) => {
         rootG.attr('transform', event.transform)
       })
-    svg.property('_mfZoom', z)
+    setStoredZoomBehavior(z)
     svg.call(z)
   } else {
-    const z = svg.property('_mfZoom')
+    const z = getStoredZoomBehavior()
     if (z) {
       z.extent([[0, 0], [width, height]])
       svg.call(z)

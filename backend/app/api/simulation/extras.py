@@ -9,7 +9,7 @@ from ...config import Config
 from ...services.simulation_manager import SimulationManager
 from ...models.project import ProjectManager
 
-from .common import logger
+from .common import _reject_unsafe_simulation_id, logger
 
 @simulation_bp.route('/fork', methods=['POST'])
 def fork_simulation():
@@ -39,6 +39,10 @@ def fork_simulation():
                 "error": "Please provide simulation_id"
             }), 400
 
+        id_err = _reject_unsafe_simulation_id(source_id)
+        if id_err:
+            return jsonify({"success": False, "error": id_err}), 400
+
         changes = data.get('changes', {})
 
         manager = SimulationManager()
@@ -56,6 +60,24 @@ def fork_simulation():
             enable_twitter=source_state.enable_twitter,
             enable_reddit=source_state.enable_reddit,
         )
+
+        new_id_err = _reject_unsafe_simulation_id(new_state.simulation_id)
+        if new_id_err:
+            logger.error(
+                "fork_simulation: new simulation_id failed validation (%s): %s",
+                new_state.simulation_id,
+                new_id_err,
+            )
+            try:
+                manager.remove_simulation(new_state.simulation_id)
+            except Exception as cleanup_exc:
+                logger.error(
+                    "fork_simulation: remove_simulation failed after bad new id (%s): %s",
+                    new_state.simulation_id,
+                    cleanup_exc,
+                    exc_info=True,
+                )
+            return jsonify({"success": False, "error": new_id_err}), 400
 
         # Store fork metadata in the simulation directory
         sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, new_state.simulation_id)
@@ -145,6 +167,10 @@ def get_cost_estimate(simulation_id: str):
     """
     try:
         from ...utils.cost_estimator import estimate_simulation_cost
+
+        id_err = _reject_unsafe_simulation_id(simulation_id)
+        if id_err:
+            return jsonify({"success": False, "error": id_err}), 400
 
         manager = SimulationManager()
         state = manager.get_simulation(simulation_id)

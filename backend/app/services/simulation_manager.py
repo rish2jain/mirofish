@@ -516,6 +516,10 @@ class SimulationManager:
         self._save_simulation_state(state)
         return True
 
+    def save_simulation(self, state: SimulationState) -> None:
+        """Persist simulation state to disk and refresh the in-memory cache."""
+        self._save_simulation_state(state)
+
     def remove_simulation(self, simulation_id: str) -> Optional[SimulationState]:
         """Remove a simulation from the in-memory cache (does not delete disk files).
 
@@ -527,22 +531,30 @@ class SimulationManager:
             logger.info(f"Removed simulation from manager cache: {simulation_id}")
         return removed
 
-    def list_simulations(self, project_id: Optional[str] = None) -> List[SimulationState]:
-        """List all simulations"""
+    def list_simulations(
+        self,
+        project_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[SimulationState]:
+        """List simulations, optionally filtered by project and capped (newest first by ``created_at``)."""
         simulations = []
-        
+
         if os.path.exists(self.SIMULATION_DATA_DIR):
             for sim_id in os.listdir(self.SIMULATION_DATA_DIR):
                 # Skip hidden files (e.g. .DS_Store) and non-directory files
                 sim_path = os.path.join(self.SIMULATION_DATA_DIR, sim_id)
-                if sim_id.startswith('.') or not os.path.isdir(sim_path):
+                if sim_id.startswith(".") or not os.path.isdir(sim_path):
                     continue
-                
+
                 state = self._load_simulation_state(sim_id)
                 if state:
                     if project_id is None or state.project_id == project_id:
                         simulations.append(state)
-        
+
+        simulations.sort(key=lambda s: s.created_at, reverse=True)
+        if limit is not None:
+            simulations = simulations[:limit]
+
         return simulations
     
     def get_profiles(self, simulation_id: str, platform: str = "reddit") -> List[Dict[str, Any]]:

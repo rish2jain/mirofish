@@ -1,0 +1,36 @@
+{
+  "entities": [
+    {"name": "Pfizer", "type": "Company"},
+    {"name": "Seagen", "type": "Company"},
+    {"name": "Albert Bourla", "type": "Executive"},
+    {"name": "David Epstein", "type": "Executive"},
+    {"name": "Federal Trade Commission", "type": "GovernmentAgency"},
+    {"name": "European Commission", "type": "GovernmentAgency"},
+    {"name": "Tim Wu", "type": "Person"},
+    {"name": "Columbia Law School", "type": "University"},
+    {"name": "Morgan Stanley", "type": "Company"},
+    {"name": "Barclays", "type": "Company"},
+    {"name": "Carl Icahn", "type": "Person"},
+    {"name": "PhRMA", "type": "Organization"},
+    {"name": "Doctors Without Borders", "type": "NGO"},
+    {"name": "World Health Organization", "type": "Organization"},
+    {"name": "Roche", "type": "Company"},
+    {"name": "Bristol-Myers Squibb", "type": "Company"}
+  ],
+  "relationships": [
+    {"source": "Albert Bourla", "target": "Pfizer", "type": "WORKS_FOR"},
+    {"source": "David Epstein", "target": "Seagen", "type": "WORKS_FOR"},
+    {"source": "Pfizer", "target": "Seagen", "type": "COLLABORATES_WITH"},
+    {"source": "Federal Trade Commission", "target": "Pfizer", "type": "REGULATES"},
+    {"source": "European Commission", "target": "Pfizer", "type": "REGULATES"},
+    {"source": "Tim Wu", "target": "Columbia Law School", "type": "AFFILIATED_WITH"},
+    {"source": "Morgan Stanley", "target": "Pfizer", "type": "REPORTS_ON"},
+    {"source": "Barclays", "target": "Pfizer", "type": "REPORTS_ON"},
+    {"source": "Carl Icahn", "target": "Seagen", "type": "AFFILIATED_WITH"},
+    {"source": "PhRMA", "target": "Pfizer", "type": "SUPPORTS"},
+    {"source": "Doctors Without Borders", "target": "Pfizer", "type": "OPPOSES"},
+    {"source": "World Health Organization", "target": "Pfizer", "type": "OPPOSES"},
+    {"source": "Roche", "target": "Pfizer", "type": "COMPETES_WITH"},
+    {"source": "Bristol-Myers Squibb", "target": "Pfizer", "type": "COMPETES_WITH"}
+  ]
+}

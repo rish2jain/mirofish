@@ -157,10 +157,11 @@ const doExport = async () => {
     if (!r.ok) throw new Error(await r.text())
     const blob = await r.blob()
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
+    const objectUrl = URL.createObjectURL(blob)
+    a.href = objectUrl
     a.download = `mirofish-${pid}.json`
     a.click()
-    URL.revokeObjectURL(a.href)
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
   } catch (e) {
     exportErr.value = e.message
   }

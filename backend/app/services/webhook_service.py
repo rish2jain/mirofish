@@ -32,6 +32,7 @@ logger = get_logger("mirofish.webhooks")
 _SECRET_STORE_PREFIX = "mf1:"
 
 _REGISTRY_LOCK = threading.Lock()
+_LAST_SIM_TERMINAL_LOCK = threading.Lock()
 _LAST_SIM_TERMINAL: Dict[str, float] = {}
 _TERMINAL_DEBOUNCE_SEC = 8.0
 
@@ -428,23 +429,24 @@ _LAST_CLEANUP = 0.0
 def dispatch_event(event: str, payload: Dict[str, Any]) -> None:
     """Fire webhooks in a background thread (best-effort)."""
     global _LAST_CLEANUP
-    now = time.monotonic()
+    with _LAST_SIM_TERMINAL_LOCK:
+        now = time.monotonic()
 
-    # Periodic cleanup: purge debounce entries older than _TERMINAL_DEBOUNCE_SEC.
-    if now - _LAST_CLEANUP > _CLEANUP_INTERVAL:
-        cutoff = now - _TERMINAL_DEBOUNCE_SEC
-        stale_keys = [k for k, ts in _LAST_SIM_TERMINAL.items() if ts < cutoff]
-        for k in stale_keys:
-            del _LAST_SIM_TERMINAL[k]
-        _LAST_CLEANUP = now
+        # Periodic cleanup: purge debounce entries older than _TERMINAL_DEBOUNCE_SEC.
+        if now - _LAST_CLEANUP > _CLEANUP_INTERVAL:
+            cutoff = now - _TERMINAL_DEBOUNCE_SEC
+            stale_keys = [k for k, ts in _LAST_SIM_TERMINAL.items() if ts < cutoff]
+            for k in stale_keys:
+                del _LAST_SIM_TERMINAL[k]
+            _LAST_CLEANUP = now
 
-    sid = payload.get("simulation_id")
-    if sid and event in ("simulation.completed", "simulation.failed"):
-        key = f"{event}:{sid}"
-        prev = _LAST_SIM_TERMINAL.get(key, 0.0)
-        if now - prev < _TERMINAL_DEBOUNCE_SEC:
-            return
-        _LAST_SIM_TERMINAL[key] = now
+        sid = payload.get("simulation_id")
+        if sid and event in ("simulation.completed", "simulation.failed"):
+            key = f"{event}:{sid}"
+            prev = _LAST_SIM_TERMINAL.get(key, 0.0)
+            if now - prev < _TERMINAL_DEBOUNCE_SEC:
+                return
+            _LAST_SIM_TERMINAL[key] = now
 
     with _REGISTRY_LOCK:
         subs = list(_load_raw().get("subscriptions", []))

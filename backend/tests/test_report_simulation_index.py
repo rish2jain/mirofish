@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import threading
 from unittest.mock import patch
 
 from app.config import Config
@@ -68,6 +69,49 @@ def test_get_reports_falls_back_scan_when_index_missing():
             assert len(out) == 1
             assert out[0]["report_id"] == "rep_only"
             assert os.path.isfile(os.path.join(reports, rsi.REPORT_SIMULATION_INDEX_FILENAME))
+
+
+def test_concurrent_get_reports_with_missing_index_rebuilds_once():
+    """Only one build_report_index should run when many threads hit the missing-index path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reports = os.path.join(tmp, "reports")
+        os.makedirs(os.path.join(reports, "rep_only"), exist_ok=True)
+        meta = {
+            "report_id": "rep_only",
+            "simulation_id": "sim_z",
+            "graph_id": "g",
+            "simulation_requirement": "",
+            "status": "completed",
+            "created_at": "2025-01-01T00:00:00",
+        }
+        with open(os.path.join(reports, "rep_only", "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+
+        with patch.object(Config, "UPLOAD_FOLDER", tmp), patch.object(
+            ReportManager, "REPORTS_DIR", reports
+        ):
+            assert not os.path.isfile(os.path.join(reports, rsi.REPORT_SIMULATION_INDEX_FILENAME))
+            build_calls = {"n": 0}
+            real_build = rsi.build_report_index
+
+            def counting_build():
+                build_calls["n"] += 1
+                return real_build()
+
+            barrier = threading.Barrier(8)
+
+            def worker():
+                barrier.wait()
+                rsi.get_reports_for_simulation("sim_z")
+
+            with patch.object(rsi, "build_report_index", side_effect=counting_build):
+                threads = [threading.Thread(target=worker) for _ in range(8)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+            assert build_calls["n"] == 1
 
 
 def test_build_report_index_skips_index_file():

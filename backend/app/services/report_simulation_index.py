@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -25,6 +26,24 @@ logger = get_logger("mirofish.report_simulation_index")
 
 REPORT_SIMULATION_INDEX_FILENAME = "report_simulation_index.json"
 _INDEX_VERSION = 1
+
+# Serialize in-process full index rebuilds triggered from get_reports_for_simulation.
+_index_rebuild_lock = threading.Lock()
+
+
+def _serialized_rebuild_report_index() -> None:
+    """
+    Run build_report_index at most once concurrently. The first caller performs the rebuild;
+    others block until it finishes, then return without a second rebuild (callers re-read the file).
+    """
+    if _index_rebuild_lock.acquire(blocking=False):
+        try:
+            build_report_index()
+        finally:
+            _index_rebuild_lock.release()
+    else:
+        with _index_rebuild_lock:
+            pass
 
 
 def _reports_dir() -> str:
@@ -235,25 +254,26 @@ def update_report_index(report_id: str, meta: Dict[str, Any]) -> None:
 
 def remove_report_from_index(report_id: str) -> None:
     """Remove report_id from all simulation buckets. Call when deleting a report."""
-    data = _read_index()
-    if data is None:
-        return
-    by_simulation = {
-        k: [dict(x) for x in (v or [])]
-        for k, v in (data.get("by_simulation") or {}).items()
-        if isinstance(v, list)
-    }
-    changed = False
-    for lst in by_simulation.values():
-        before = len(lst)
-        lst[:] = [e for e in lst if str(e.get("report_id")) != str(report_id)]
-        if len(lst) != before:
-            changed = True
-    if not changed:
-        return
-    by_simulation = {k: v for k, v in by_simulation.items() if v}
-    payload = {"version": _INDEX_VERSION, "by_simulation": by_simulation}
-    _atomic_write_json(_index_path(), payload)
+    with _report_index_file_lock():
+        data = _read_index()
+        if data is None:
+            return
+        by_simulation = {
+            k: [dict(x) for x in (v or [])]
+            for k, v in (data.get("by_simulation") or {}).items()
+            if isinstance(v, list)
+        }
+        changed = False
+        for lst in by_simulation.values():
+            before = len(lst)
+            lst[:] = [e for e in lst if str(e.get("report_id")) != str(report_id)]
+            if len(lst) != before:
+                changed = True
+        if not changed:
+            return
+        by_simulation = {k: v for k, v in by_simulation.items() if v}
+        payload = {"version": _INDEX_VERSION, "by_simulation": by_simulation}
+        _atomic_write_json(_index_path(), payload)
 
 
 def get_reports_for_simulation(simulation_id: str) -> List[Dict[str, Any]]:
@@ -266,7 +286,7 @@ def get_reports_for_simulation(simulation_id: str) -> List[Dict[str, Any]]:
     if idx is None:
         matches = _scan_reports_dir_for_simulation(simulation_id)
         try:
-            build_report_index()
+            _serialized_rebuild_report_index()
         except Exception as exc:
             logger.warning("build_report_index after missing index failed: %s", exc)
         return sorted(matches, key=lambda x: x.get("created_at", ""), reverse=True)
@@ -280,7 +300,7 @@ def get_reports_for_simulation(simulation_id: str) -> List[Dict[str, Any]]:
     filtered = [e for e in entries if _meta_exists(str(e["report_id"]))]
     if len(filtered) != len(entries):
         try:
-            build_report_index()
+            _serialized_rebuild_report_index()
             idx2 = _read_index()
             if idx2:
                 raw2 = idx2.get("by_simulation", {}).get(simulation_id)
