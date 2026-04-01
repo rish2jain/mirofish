@@ -57,5 +57,8 @@ backend/logs/
 backend/uploads/
 uploads/
 
+# App config root: auto-generated Flask secret if SECRET_KEY unset (not user uploads)
+backend/config/secrets/
+
 # Docker 数据
 data/

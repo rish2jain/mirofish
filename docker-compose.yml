@@ -10,7 +10,7 @@ services:
       - .env
     environment:
       - HOME=/home/deploy
-      - PATH=/home/deploy/.local/bin:/home/deploy/.local/share/claude/versions/2.1.76:/usr/local/bin:/usr/bin:/bin
+      - PATH=/home/deploy/.local/bin:/home/deploy/.local/share/claude/current:/usr/local/bin:/usr/bin:/bin
       - NODE_PATH=/home/deploy/.local/lib/node_modules
       - LLM_PROVIDER=openai
       - LLM_BASE_URL=http://codex-proxy:11435/v1
@@ -39,6 +39,18 @@ services:
       - "traefik.http.routers.synth-http.middlewares=redirect-to-https"
     networks:
       - traefik
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   codex-proxy:
     build: ./codex-proxy

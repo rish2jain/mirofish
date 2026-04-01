@@ -63,6 +63,8 @@ async function deleteSimulationBestEffort(simulationId, contextLabel) {
 // Helper to poll simulation status until complete
 async function pollSimulation(simulationId, maxWaitMs = 600000) {
   const start = Date.now();
+  let delayMs = 5000;
+  const maxDelayMs = 30000;
   while (Date.now() - start < maxWaitMs) {
     const status = await apiCall("GET", `/api/simulation/${simulationId}/run-status`);
     if (status.data?.status === "completed" || status.data?.status === "stopped") {
@@ -71,7 +73,8 @@ async function pollSimulation(simulationId, maxWaitMs = 600000) {
     if (status.data?.status === "failed" || status.data?.status === "error") {
       throw new Error(`Simulation failed: ${JSON.stringify(status.data)}`);
     }
-    await new Promise((r) => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, delayMs));
+    delayMs = Math.min(maxDelayMs, Math.floor(delayMs * 1.5));
   }
   throw new Error(`Simulation ${simulationId} timed out after ${maxWaitMs}ms`);
 }
