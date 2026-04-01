@@ -52,6 +52,8 @@ npm run setup:all
 npm run dev
 ```
 
+`npm run dev` force-frees port `5001` before starting the backend. Use `npm run dev:no-kill` if you already have another process bound there and do not want MiroFish to terminate it.
+
 - Frontend: <http://localhost:3000>
 - Backend API: <http://localhost:5001>
 
@@ -63,6 +65,19 @@ docker compose up -d --build
 ```
 
 Docker builds the Vue frontend, serves it from the Flask app, and exposes the combined app on port `5001` inside the container.
+
+## Tests, lint, and env docs
+
+```bash
+npm run lint:backend              # Ruff from repo root
+cd backend && uv run pytest       # Backend tests
+cd backend && uv run ruff check --fix app tests   # Autofix (optional)
+cd frontend && npm run lint       # ESLint
+cd frontend && npm run test       # Vitest unit tests
+npm run test:e2e                  # Playwright (runs frontend build first)
+```
+
+Regenerate environment-variable documentation from code: `npm run docs:env` (writes via `scripts/generate_env_docs.py`). Check only: `npm run docs:env:check`.
 
 ## LLM providers
 
@@ -104,6 +119,8 @@ Each proxy exposes `POST /v1/chat/completions`, `GET /v1/models`, and `GET /heal
 
 The proxy containers mount the host CLI binary and auth state, so make sure the CLI is installed and authenticated on the host first. Outside Docker, MiroFish calls CLIs directly (no proxy needed).
 
+The main app container resolves Claude from a stable `/home/deploy/.local/share/claude/current` path at startup, so host-side Claude version changes do not require editing `docker-compose.yml`.
+
 ## Consulting templates
 
 Pre-built simulation templates in `backend/templates/`:
@@ -141,14 +158,19 @@ Example prompt in Claude Code:
 frontend/          Vue 3 + Vite + D3.js (graph visualization)
 backend/
   app/
-    api/           Thin Flask REST endpoints (graph, simulation, report, templates)
+    api/
+      graph.py           /api/graph — projects, ontology upload, build, tasks, bundles, Cypher query
+      simulation/        /api/simulation — split modules (management, run_control, entities, interview, batch, extras)
+      report.py          /api/report — generate, chat, logs, compare, PDF, tools
+      templates.py       /api/templates — list/get (+ PUT/POST when template write is enabled)
+      hooks.py           /api/hooks — outbound webhook registry (service API key)
     core/          LLM orchestrator, workbench session, task tracking
-    resources/     Adapters for projects, documents, Kuzu, simulations, reports
-    tools/         Composable workbench operations (ingest, build, prepare, run, report)
-    services/      Core business logic (15 modules)
-    utils/         LLM client, cost estimator, file parser, retry, logging
+    resources/     Adapters for projects, documents, Kuzu, simulations, reports, LLM
+    tools/         Composable workbench operations (ontology, build, prepare, run, report)
+    services/      Core business logic (graph, simulation, report pipeline, webhooks, workflow bundle, etc.)
+    utils/         LLM client, cache, auth helpers, background tasks, parsers, logging
   templates/       Consulting simulation templates (JSON)
-  scripts/         OASIS simulation runner scripts (Twitter + Reddit)
+  run.py           App entry
 claude-proxy/      OpenAI-compatible sidecar for Claude CLI (Docker)
 codex-proxy/       OpenAI-compatible sidecar for Codex CLI (Docker)
 gemini-proxy/      OpenAI-compatible sidecar for Gemini CLI (Docker)
@@ -156,6 +178,8 @@ mcp-server/        MCP server for Claude Code integration
 ```
 
 The backend is being refactored toward a pi-style shape: one workbench session core, pluggable resource adapters, composable tools, and thin API shells.
+
+**Code maps:** [docs/CODEMAPS/INDEX.md](docs/CODEMAPS/INDEX.md) (blueprints, routes, Compose, MCP). Release-oriented notes: [CHANGELOG.md](CHANGELOG.md), [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 
 ## How the pipeline works
 
@@ -167,6 +191,14 @@ Document upload → LLM ontology extraction → Knowledge graph (KuzuDB)
     → Interactive chat / agent interviews / PDF export
     → Scenario fork → A/B comparison
 ```
+
+## Integrations & ops (optional)
+
+- **Web UI:** [Tools](/tools) (when running the dev app) — export/import project bundles, graph snapshots & diff, batch simulations, webhook registration. [Template editor](/templates/edit) updates JSON templates when `MIROFISH_ALLOW_TEMPLATE_WRITE` or `FLASK_DEBUG` is enabled.
+- **Report compare:** [Compare reports](/report/compare) uses `POST /api/report/compare` (side-by-side markdown; fork simulations for A/B, then compare their reports).
+- **Real-time:** Simulation run status streams via `GET /api/simulation/<id>/run-status/stream` (SSE). Report agent logs: `GET /api/report/<id>/agent-log/sse` and `console-log/sse`. Narrative chat streaming: `POST /api/report/chat/stream`.
+- **Webhooks:** Register URLs with `POST /api/hooks/webhooks` (requires `MIROFISH_API_KEY` on the server). Events include `simulation.completed` and `simulation.failed` (HMAC `X-MiroFish-Signature: sha256=…` when a secret is set).
+- **Read-only graph query (Cypher):** `POST /api/graph/query` with `{ "graph_id", "query" }` — read-only **Cypher** (Kuzu's query language, not SQL); Kuzu only; see `.env.example` for `MIROFISH_*` and `BATCH_SIM_MAX_ITEMS`.
 
 ## Acknowledgments
 

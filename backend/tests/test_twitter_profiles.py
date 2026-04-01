@@ -1,13 +1,11 @@
 import csv
-import sys
 from pathlib import Path
 
 import pytest
 from flask import Flask
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from app.api import simulation as simulation_api
+from app.api.simulation import management as simulation_management
+from app.config import Config
 from app.services.simulation_manager import SimulationManager, SimulationState
 
 
@@ -57,11 +55,11 @@ def test_simulation_manager_loads_twitter_profiles_csv(tmp_path: Path, twitter_p
 
 
 def test_realtime_profiles_endpoint_normalizes_twitter_csv(tmp_path: Path, twitter_profiles_csv: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(simulation_api.Config, 'OASIS_SIMULATION_DATA_DIR', str(tmp_path))
+    monkeypatch.setattr(Config, 'OASIS_SIMULATION_DATA_DIR', str(tmp_path))
 
     app = Flask(__name__)
     with app.test_request_context('/api/simulation/sim_test/profiles/realtime?platform=twitter'):
-        response = simulation_api.get_simulation_profiles_realtime('sim_test')
+        response = simulation_management.get_simulation_profiles_realtime('sim_test')
 
     payload = response.get_json()
 
