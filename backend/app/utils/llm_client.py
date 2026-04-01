@@ -6,9 +6,11 @@ Supports OpenAI API, Anthropic API, Claude CLI, Codex CLI, and Gemini CLI
 import json
 import re
 import subprocess
-from typing import Any, Dict, Iterable, List, Optional
+import warnings
+from typing import Any, Dict, Generator, Iterable, List, Optional
 
 from ..config import Config
+from .cost_estimator import CostEstimate, estimate_cost, estimate_tokens_from_text
 from .logger import get_logger
 
 logger = get_logger('mirofish.llm_client')
@@ -57,6 +59,65 @@ class LLMClient:
                 api_key=self.api_key,
                 base_url=self.base_url
             )
+
+    @property
+    def supports_streaming(self) -> bool:
+        """
+        True when :meth:`chat_stream_text` can stream via an SDK (Anthropic or OpenAI-compatible).
+
+        False for CLI providers (``claude-cli``, ``codex-cli``, ``gemini-cli``) or when
+        ``self.client`` is unset.
+        """
+        if self.provider in ("claude-cli", "codex-cli", "gemini-cli"):
+            return False
+        return self.client is not None
+
+    def estimate_call_cost(
+        self,
+        messages: List[Dict[str, str]],
+        expected_completion_tokens: int = 1000,
+        warn_threshold_usd: float = 0.10,
+    ) -> CostEstimate:
+        """
+        Estimate cost of an LLM call before making it.
+
+        Args:
+            messages: The messages that would be sent.
+            expected_completion_tokens: Estimated output tokens.
+            warn_threshold_usd: Log a warning if estimated cost exceeds this.
+
+        Returns:
+            CostEstimate with breakdown.
+        """
+        prompt_text = " ".join(m.get("content", "") for m in messages)
+        prompt_tokens = estimate_tokens_from_text(prompt_text)
+        is_cli = self.provider in ("claude-cli", "codex-cli", "gemini-cli")
+
+        est = estimate_cost(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=expected_completion_tokens,
+            model=self.model or "",
+            is_cli=is_cli,
+        )
+
+        if est.total_cost_usd > warn_threshold_usd:
+            logger.warning(
+                "Expensive LLM call estimated: ~$%.4f "
+                "(~%d prompt tokens, ~%d completion tokens, model=%s)",
+                est.total_cost_usd,
+                prompt_tokens,
+                expected_completion_tokens,
+                self.model,
+            )
+        else:
+            logger.debug(
+                "LLM call estimate: ~%d prompt tokens, ~%d completion, ~$%.6f",
+                prompt_tokens,
+                expected_completion_tokens,
+                est.total_cost_usd,
+            )
+
+        return est
 
     def _detect_provider(self) -> str:
         """Auto-detect provider from base_url or model name"""
@@ -212,6 +273,69 @@ class LLMClient:
         else:
             return self._chat_openai(messages, temperature, max_tokens, response_format)
 
+    def chat_stream_text(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> Generator[str, None, None]:
+        """
+        Stream plain text deltas (OpenAI-compatible API and native Anthropic API only).
+
+        Check :attr:`supports_streaming` before calling; when it is ``False``, prefer
+        :meth:`chat` for a full non-streaming response.
+
+        If invoked when :attr:`supports_streaming` is ``False``, emits ``UserWarning`` once
+        per call, logs at debug for telemetry, and returns without yielding (no exception).
+        """
+        if not self.supports_streaming:
+            warnings.warn(
+                (
+                    "LLMClient.chat_stream_text is not supported for this configuration "
+                    f"(provider={self.provider!r}, no SDK streaming client). Use "
+                    "LLMClient.chat() instead. Check LLMClient.supports_streaming before "
+                    "calling to avoid this warning."
+                ),
+                UserWarning,
+                stacklevel=2,
+            )
+            logger.debug(
+                "chat_stream_text: streaming not supported for provider=%r (CLI or missing "
+                "client); callers should use chat() as a non-streaming fallback",
+                self.provider,
+            )
+            return
+        if self.provider == "anthropic":
+            system_text, conversation = self._split_system_message(messages)
+            kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": conversation,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+            }
+            if system_text:
+                kwargs["system"] = system_text
+            with self.client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        yield text
+            return
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = getattr(choice.delta, "content", None)
+            if delta:
+                yield delta
+
     def _chat_openai(
         self,
         messages: List[Dict[str, str]],
@@ -313,14 +437,14 @@ class LLMClient:
             return content
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Claude CLI timed out after 120s")
+            raise RuntimeError(f"Claude CLI timed out after {Config.CLI_TIMEOUT}s")
 
     def _run_claude_cli_text(self, prompt: str) -> str:
         """Run Claude CLI with --output-format text and return raw stdout."""
         result = subprocess.run(
             ["claude", "-p", "--output-format", "text"],
             input=prompt,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=Config.CLI_TIMEOUT,
             cwd="/tmp",
         )
 
@@ -350,7 +474,7 @@ class LLMClient:
         result = subprocess.run(
             ["claude", "-p", "--output-format", "json"],
             input=prompt,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=Config.CLI_TIMEOUT,
             cwd="/tmp",
         )
 
@@ -412,7 +536,7 @@ class LLMClient:
             result = subprocess.run(
                 ["codex", "exec", "--skip-git-repo-check"],
                 input=prompt,
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, text=True, timeout=Config.CLI_TIMEOUT,
                 cwd="/tmp"
             )
 
@@ -443,7 +567,7 @@ class LLMClient:
             return content
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Codex CLI timed out after 180s")
+            raise RuntimeError(f"Codex CLI timed out after {Config.CLI_TIMEOUT}s")
 
     def _chat_gemini_cli(
         self,
@@ -460,7 +584,7 @@ class LLMClient:
             result = subprocess.run(
                 ["gemini", "-p", ""],
                 input=prompt,
-                capture_output=True, text=True, timeout=180,
+                capture_output=True, text=True, timeout=Config.CLI_TIMEOUT,
                 cwd="/tmp"
             )
 
@@ -477,7 +601,7 @@ class LLMClient:
             return content
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Gemini CLI timed out after 180s")
+            raise RuntimeError(f"Gemini CLI timed out after {Config.CLI_TIMEOUT}s")
 
     def chat_json(
         self,

@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from flask import current_app
 
@@ -24,6 +26,42 @@ logger = get_logger("mirofish.graph_storage")
 
 class StorageError(RuntimeError):
     """Raised when a graph storage operation fails."""
+
+
+_READ_FORBIDDEN = re.compile(
+    r"\b(DROP|DETACH|DELETE\s|MERGE|REMOVE\s|SET\s|IMPORT|EXPORT|CREATE)\b",
+    re.I,
+)
+
+# First identifier after CALL (read-only query API); must match exactly, not as substring.
+_CALL_PROC_NAME = re.compile(r"^CALL\s+([A-Za-z_][A-Za-z0-9_]*)", re.I)
+
+_ALLOWED_READ_ONLY_CALL_PROCS = frozenset(
+    {"QUERY_NODE", "SHOW_TABLES", "SHOW_INDEXES", "TABLE_INFO"}
+)
+
+
+def validate_read_only_kuzu_query(query: str) -> None:
+    """Reject writes and multi-statements for ad-hoc Cypher."""
+    s = (query or "").strip()
+    if not s:
+        raise StorageError("Empty query")
+    if ";" in s:
+        raise StorageError("Multiple statements are not allowed")
+    if _READ_FORBIDDEN.search(s):
+        raise StorageError("Query contains disallowed keywords")
+    ul = s.upper()
+    if not (
+        ul.startswith("MATCH")
+        or ul.startswith("RETURN")
+        or ul.startswith("CALL ")
+        or ul.startswith("OPTIONAL MATCH")
+    ):
+        raise StorageError("Query must start with MATCH, OPTIONAL MATCH, RETURN, or CALL")
+    if ul.startswith("CALL"):
+        m = _CALL_PROC_NAME.match(s)
+        if not m or m.group(1).upper() not in _ALLOWED_READ_ONLY_CALL_PROCS:
+            raise StorageError("CALL is limited to supported read-only procedures")
 
 
 def _json_dumps(value: Any) -> str:
@@ -177,9 +215,34 @@ class GraphStorage(ABC):
 
 
 class KuzuDBStorage(GraphStorage):
-    """Embedded KuzuDB-backed graph storage."""
+    """Embedded KuzuDB-backed graph storage.
+
+    KuzuDB does not support multiple ``Database`` objects on the same path
+    within a single process.  To avoid silent data-loss (writes from one
+    instance invisible to another), ``KuzuDBStorage`` caches instances by
+    their *resolved* ``db_path`` and returns the existing one on repeated
+    calls to ``__init__``.
+    """
+
+    _instance_cache: dict[str, "KuzuDBStorage"] = {}
+    _cache_lock = threading.Lock()
+
+    def __new__(cls, db_path: str):
+        resolved = os.path.realpath(db_path)
+        with cls._cache_lock:
+            existing = cls._instance_cache.get(resolved)
+            if existing is not None:
+                return existing
+            instance = super().__new__(cls)
+            instance._cache_key = resolved
+            instance._initialized = False
+            cls._instance_cache[resolved] = instance
+            return instance
 
     def __init__(self, db_path: str):
+        if self._initialized:
+            return
+
         if kuzu is None:
             message = (
                 "Failed to initialize KuzuDB storage: kuzu package is not installed. "
@@ -198,6 +261,7 @@ class KuzuDBStorage(GraphStorage):
         except Exception as exc:  # pragma: no cover - depends on local Kuzu runtime
             logger.error("Failed to initialize KuzuDB storage at %s: %s", self._database_path, exc)
             raise RuntimeError(f"Failed to initialize KuzuDB storage at {self.db_path}: {exc}") from exc
+        self._initialized = True
 
     def _execute(self, query: str, params: Optional[Dict[str, Any]] = None):
         try:
@@ -681,9 +745,32 @@ class KuzuDBStorage(GraphStorage):
         except (TypeError, json.JSONDecodeError):
             return value
 
+    def execute_read_only_query(self, query: str, max_rows: int = 500) -> Dict[str, Any]:
+        validate_read_only_kuzu_query(query)
+        cap = max(1, min(int(max_rows), 5000))
+        result = self._execute(query)
+        try:
+            columns: List[str] = list(result.get_column_names())
+            raw_rows = result.get_n(cap)
+            serializable: List[Any] = []
+            for row in raw_rows:
+                if isinstance(row, dict):
+                    serializable.append(row)
+                else:
+                    serializable.append(list(row) if hasattr(row, "__iter__") and not isinstance(row, (str, bytes)) else row)
+            return {"columns": columns, "rows": serializable, "truncated": len(raw_rows) >= cap}
+        finally:
+            try:
+                result.close()
+            except Exception:  # pragma: no cover
+                pass
+
     def close(self) -> None:
+        with self._cache_lock:
+            self._instance_cache.pop(getattr(self, "_cache_key", None), None)
         self._connection = None
         self._database = None
+        self._initialized = False
 
 
 class JSONStorage(GraphStorage):

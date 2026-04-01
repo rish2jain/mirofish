@@ -122,7 +122,7 @@ class WorkbenchSession:
             additional_context=additional_context,
             session_id=self.session_id,
         )
-        self.state = self.session_manager.get(result["session_id"]) or self.state
+        self.state = self.session_manager.get(result.get("session_id", "")) or self.state
         return result
 
     def start_graph_build(
@@ -141,7 +141,7 @@ class WorkbenchSession:
             force=force,
             session_id=self.session_id,
         )
-        self.state = self.session_manager.get(result["session_id"]) or self.state
+        self.state = self.session_manager.get(result.get("session_id", "")) or self.state
         return result
 
     def create_simulation(
@@ -181,7 +181,7 @@ class WorkbenchSession:
             force_regenerate=force_regenerate,
             session_id=self.session_id,
         )
-        self.state = self.session_manager.get(result["session_id"]) or self.state
+        self.state = self.session_manager.get(result.get("session_id", "")) or self.state
         return result
 
     def start_simulation_run(
@@ -200,7 +200,7 @@ class WorkbenchSession:
             force=force,
             session_id=self.session_id,
         )
-        self.state = self.session_manager.get(result["session_id"]) or self.state
+        self.state = self.session_manager.get(result.get("session_id", "")) or self.state
         return result
 
     def start_report_generation(
@@ -213,5 +213,5 @@ class WorkbenchSession:
             force_regenerate=force_regenerate,
             session_id=self.session_id,
         )
-        self.state = self.session_manager.get(result["session_id"]) or self.state
+        self.state = self.session_manager.get(result.get("session_id", "")) or self.state
         return result

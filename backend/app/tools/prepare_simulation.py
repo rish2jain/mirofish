@@ -5,12 +5,12 @@ from typing import Any, Dict, List, Optional
 
 from ..core.session_manager import SessionManager
 from ..core.task_manager import TaskManager, TaskStatus
-from ..models.project import ProjectManager
 from ..resources.documents import DocumentStore
 from ..resources.projects import ProjectStore
 from ..resources.simulations import SimulationStore
 from ..services.entity_reader import EntityReader
 from ..services.simulation_manager import SimulationStatus
+from ..utils.background_tasks import BackgroundTaskRegistry
 from ..utils.logger import get_logger
 from .simulation_support import check_simulation_prepared
 
@@ -74,6 +74,7 @@ class PrepareSimulationTool:
             if simulation_id in _preparing_simulations:
                 return {
                     "simulation_id": simulation_id,
+                    "session_id": session_id or "",
                     "status": "already_preparing",
                     "message": "Preparation already in progress for this simulation",
                 }
@@ -214,8 +215,7 @@ class PrepareSimulationTool:
                 with _preparing_lock:
                     _preparing_simulations.discard(simulation_id)
 
-        thread = threading.Thread(target=run_prepare, daemon=True)
-        thread.start()
+        BackgroundTaskRegistry.start(name=f"simulation-prepare:{task_id}", target=run_prepare)
 
         return {
             "simulation_id": simulation_id,

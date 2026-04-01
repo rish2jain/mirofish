@@ -2,25 +2,32 @@
 Provides simulation report generation, retrieval, chat, and other endpoints
 """
 
+import json
 import os
 import io
+import queue
 import re
-import traceback
 import threading
+import time
+from typing import Optional
 
 import nh3
-from flask import request, jsonify, send_file, make_response
+from flask import make_response, jsonify, request, send_file, Response, stream_with_context
 
 from . import report_bp
-from ..config import Config
 from ..core.workbench_session import WorkbenchSession
-from ..services.report_agent import ReportAgent, ReportManager, ReportStatus
+from ..services.report_agent import EMPTY_STREAM, ReportAgent, ReportManager, ReportStatus
 from ..services.simulation_manager import SimulationManager
 from ..models.project import ProjectManager
 from ..models.task import TaskManager
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.api.report')
+
+# SSE chat stream: poll queue this often to emit heartbeats if the LLM stream stalls.
+CHAT_STREAM_HEARTBEAT_POLL_S = 5
+# Hard cap for how long we wait for the narrative stream (reader runs in a daemon thread).
+CHAT_STREAM_OVERALL_TIMEOUT_S = 900
 
 # Whitelist for report PDF/HTML export (markdown output + optional <pre> fallback)
 _PDF_HTML_ALLOWED_TAGS = frozenset({
@@ -100,6 +107,14 @@ def _task_to_dict(task) -> dict:
     return task if isinstance(task, dict) else task.to_dict()
 
 
+def _task_metadata(task) -> dict:
+    """Read task metadata whether the record is a dict or Task-like object."""
+    if isinstance(task, dict):
+        return task.get("metadata") or {}
+    meta = getattr(task, "metadata", None)
+    return meta if isinstance(meta, dict) else {}
+
+
 def _normalize_task_status_data(task_data: dict) -> dict:
     """Ensure task status payloads always expose a numeric progress field."""
     normalized = dict(task_data)
@@ -116,6 +131,29 @@ def _get_generate_task_by_report_id(report_id: str) -> dict:
         metadata = task_data.get("metadata") or {}
         if metadata.get("report_id") == report_id:
             return _normalize_task_status_data(task_data)
+    return None
+
+
+def _find_report_task(*, task_id: Optional[str], simulation_id: Optional[str]):
+    """Locate a report_generate task by task_id or simulation_id."""
+    tm = TaskManager()
+    if task_id:
+        task = tm.get_task(task_id)
+        if task is None:
+            return None
+        ttype = (
+            task.get("task_type")
+            if isinstance(task, dict)
+            else getattr(task, "task_type", None)
+        )
+        if ttype != "report_generate":
+            return None
+        return task
+    if simulation_id:
+        for task in tm.list_tasks(task_type="report_generate"):
+            meta = _task_metadata(task)
+            if meta.get("simulation_id") == simulation_id:
+                return task
     return None
 
 
@@ -246,7 +284,7 @@ def get_generate_status():
                     }
                 })
         
-        task = _find_report_task(task_id=task_id, simulation_id=simulation_id, report_id=report_id)
+        task = _find_report_task(task_id=task_id, simulation_id=simulation_id)
 
         if not task:
             return jsonify({
@@ -551,6 +589,141 @@ def chat_with_report_agent():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@report_bp.route("/chat/stream", methods=["POST"])
+def chat_with_report_agent_stream():
+    """
+    SSE stream of narrative chat (no tools). API/SDK backends stream token deltas.
+    CLI-only backends do not stream; the narrative generator yields EMPTY_STREAM once and
+    this route falls back to one-shot ReportAgent.chat, then emits the reply as SSE deltas.
+    """
+    try:
+        data = request.get_json() or {}
+        simulation_id = data.get("simulation_id")
+        message = data.get("message")
+        chat_history = data.get("chat_history", [])
+        if not simulation_id or not message:
+            return jsonify({"success": False, "error": "simulation_id and message required"}), 400
+
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        if not state:
+            return jsonify({"success": False, "error": f"Simulation not found: {simulation_id}"}), 404
+        project = ProjectManager.get_project(state.project_id)
+        if not project:
+            return jsonify({"success": False, "error": f"Project not found: {state.project_id}"}), 404
+        graph_id = state.graph_id or project.graph_id
+        if not graph_id:
+            return jsonify({"success": False, "error": "Missing graph ID"}), 400
+        simulation_requirement = project.simulation_requirement or ""
+
+        agent = ReportAgent(
+            graph_id=graph_id,
+            simulation_id=simulation_id,
+            simulation_requirement=simulation_requirement,
+        )
+
+        def generate():
+            """
+            Drain chat_stream_narrative in a daemon thread so this generator can still
+            run on a timer: queue.get(timeout) yields periodic heartbeats; overall
+            deadline yields a timeout error if the stream never completes.
+            """
+            buf: list[str] = []
+            q: queue.Queue[tuple[str, Optional[str]]] = queue.Queue()
+            cancel_event = threading.Event()
+
+            def _reader() -> None:
+                try:
+                    stream = agent.chat_stream_narrative(
+                        message, chat_history, cancel_event=cancel_event
+                    )
+                    try:
+                        for chunk in stream:
+                            if cancel_event.is_set():
+                                break
+                            if chunk is EMPTY_STREAM:
+                                break
+                            if chunk:
+                                q.put(("chunk", chunk))
+                    finally:
+                        close_fn = getattr(stream, "close", None)
+                        if callable(close_fn):
+                            try:
+                                close_fn()
+                            except Exception:
+                                logger.debug("chat stream generator close failed", exc_info=True)
+                    if cancel_event.is_set():
+                        return
+                    q.put(("end", None))
+                except Exception as exc:
+                    logger.exception("chat_stream_narrative reader failed")
+                    q.put(("error", str(exc)))
+
+            reader = threading.Thread(target=_reader, name="report_chat_stream", daemon=True)
+            reader.start()
+            deadline = time.monotonic() + CHAT_STREAM_OVERALL_TIMEOUT_S
+            stream_done = False
+            stream_error: Optional[str] = None
+
+            try:
+                while not stream_done and stream_error is None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        cancel_event.set()
+                        err = json.dumps(
+                            {"error": "Report chat stream timed out", "timeout": True},
+                            ensure_ascii=False,
+                        )
+                        yield f"data: {err}\n\n"
+                        return
+                    wait = min(CHAT_STREAM_HEARTBEAT_POLL_S, remaining)
+                    try:
+                        kind, payload = q.get(timeout=wait)
+                    except queue.Empty:
+                        yield f"data: {json.dumps({'heartbeat': True}, ensure_ascii=False)}\n\n"
+                        continue
+                    if kind == "chunk" and payload:
+                        buf.append(payload)
+                        yield f"data: {json.dumps({'delta': payload}, ensure_ascii=False)}\n\n"
+                    elif kind == "end":
+                        stream_done = True
+                    elif kind == "error":
+                        stream_error = payload or "stream error"
+            except GeneratorExit:
+                cancel_event.set()
+                raise
+            finally:
+                cancel_event.set()
+
+            if stream_error:
+                yield f"data: {json.dumps({'error': stream_error}, ensure_ascii=False)}\n\n"
+                return
+
+            try:
+                if not buf:
+                    # CLI / no SDK stream: one-shot answer
+                    result = agent.chat(message=message, chat_history=chat_history)
+                    text = (result or {}).get("response") or ""
+                    yield f"data: {json.dumps({'delta': text}, ensure_ascii=False)}\n\n"
+                    buf.append(text)
+            except Exception as exc:
+                yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+                return
+            yield f"data: {json.dumps({'done': True, 'full_text': ''.join(buf)}, ensure_ascii=False)}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Chat stream failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Progress and Section API ==============
@@ -909,6 +1082,40 @@ def stream_console_log(report_id: str):
             "success": False,
             "error": str(e)
         }), 500
+
+
+@report_bp.route("/<report_id>/agent-log/sse", methods=["GET"])
+def sse_agent_log(report_id: str):
+    """
+    Single JSON snapshot of agent log lines from ``from_line`` (path kept for compatibility).
+
+    Clients should poll this or ``GET .../agent-log`` on a short interval instead of holding
+    an SSE connection.
+    """
+    try:
+        from_line = request.args.get("from_line", 0, type=int)
+        log_data = ReportManager.get_agent_log(report_id, from_line=from_line)
+        return jsonify({"success": True, "data": log_data})
+    except Exception as e:
+        logger.error(f"Failed to get Agent log (poll): {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@report_bp.route("/<report_id>/console-log/sse", methods=["GET"])
+def sse_console_log(report_id: str):
+    """
+    Single JSON snapshot of console log lines from ``from_line`` (path kept for compatibility).
+
+    Clients should poll this or ``GET .../console-log`` on a short interval instead of holding
+    an SSE connection.
+    """
+    try:
+        from_line = request.args.get("from_line", 0, type=int)
+        log_data = ReportManager.get_console_log(report_id, from_line=from_line)
+        return jsonify({"success": True, "data": log_data})
+    except Exception as e:
+        logger.error(f"Failed to get console log (poll): {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============== Report Comparison & Export API ==============

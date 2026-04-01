@@ -15,10 +15,39 @@ from flask_cors import CORS
 
 from .config import Config
 from .services.graph_storage import JSONStorage, KuzuDBStorage
+from .utils.background_tasks import BackgroundTaskRegistry
 from .utils.logger import setup_logger, get_logger
 
 if TYPE_CHECKING:
     from .core.llm_orchestrator import OrchestrationResult
+
+
+def _recover_stuck_statuses(logger) -> None:
+    """Reset projects/simulations stuck in transient states from a previous crash."""
+    from .models.project import ProjectManager, ProjectStatus
+    from .services.simulation_manager import SimulationManager, SimulationStatus
+
+    recovered = 0
+    for project in ProjectManager.list_projects(limit=200):
+        if project.status == ProjectStatus.GRAPH_BUILDING:
+            project.status = ProjectStatus.FAILED
+            project.error = "Server restarted during graph build"
+            ProjectManager.save_project(project)
+            logger.warning("Recovered stuck project %s (graph_building → failed)", project.project_id)
+            recovered += 1
+
+    sim_mgr = SimulationManager()
+    for sim in sim_mgr.list_simulations():
+        if sim.status in (SimulationStatus.PREPARING, SimulationStatus.RUNNING):
+            old_status = sim.status.value
+            sim.status = SimulationStatus.FAILED
+            sim.error = f"Server restarted during {old_status}"
+            sim_mgr._save_simulation_state(sim)
+            logger.warning("Recovered stuck simulation %s (%s → failed)", sim.simulation_id, old_status)
+            recovered += 1
+
+    if recovered:
+        logger.info("Recovered %d stuck project/simulation statuses", recovered)
 
 
 def create_app(config_class=Config, orchestration: Optional["OrchestrationResult"] = None):
@@ -71,10 +100,16 @@ def create_app(config_class=Config, orchestration: Optional["OrchestrationResult
     # Register simulation process cleanup (ensure all simulation processes are terminated on server shutdown)
     from .services.simulation_runner import SimulationRunner
     SimulationRunner.register_cleanup()
+    BackgroundTaskRegistry.register_cleanup()
     if should_log_startup:
         logger.info("Simulation process cleanup registered")
+        logger.info("Background task cleanup registered")
         logger.info("Graph storage backend: %s", type(app.extensions["graph_storage"]).__name__)
     
+    # Recover stuck statuses from previous ungraceful shutdown
+    if should_log_startup:
+        _recover_stuck_statuses(logger)
+
     # Request logging middleware
     @app.before_request
     def log_request():
@@ -91,11 +126,13 @@ def create_app(config_class=Config, orchestration: Optional["OrchestrationResult
     
     # Register blueprints
     from .api import graph_bp, simulation_bp, report_bp
+    from .api.hooks import hooks_bp
     from .api.templates import templates_bp
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(templates_bp, url_prefix='/api/templates')
+    app.register_blueprint(hooks_bp, url_prefix='/api/hooks')
     
     # Health check
     @app.route('/health')

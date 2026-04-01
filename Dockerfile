@@ -28,12 +28,21 @@ ENV PYTHONUNBUFFERED=1 \
     FLASK_HOST=0.0.0.0 \
     FLASK_PORT=5001
 
-COPY backend/requirements.txt ./backend/requirements.txt
-RUN uv pip install --system -r backend/requirements.txt
+COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gcc python3-dev \
+  && cd backend && uv sync --frozen --no-dev \
+  && apt-get purge -y --auto-remove gcc python3-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY backend/ ./backend/
+COPY docker/entrypoint.sh /usr/local/bin/mirofish-entrypoint
+RUN chmod +x /usr/local/bin/mirofish-entrypoint
+
+ENV PATH="/app/backend/.venv/bin:$PATH"
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 EXPOSE 5001
 
+ENTRYPOINT ["mirofish-entrypoint"]
 CMD ["python", "backend/run.py"]
