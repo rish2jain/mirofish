@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from enum import Enum
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from ..config import Config
 
 
@@ -51,6 +51,9 @@ class Project:
     
     # Error info
     error: Optional[str] = None
+
+    # Optional multi-tenant label (set from X-MiroFish-User when MIROFISH_REQUIRE_USER_HEADER=1)
+    owner_user_id: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -69,7 +72,8 @@ class Project:
             "simulation_requirement": self.simulation_requirement,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
-            "error": self.error
+            "error": self.error,
+            "owner_user_id": self.owner_user_id,
         }
     
     @classmethod
@@ -94,7 +98,8 @@ class Project:
             simulation_requirement=data.get('simulation_requirement'),
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
-            error=data.get('error')
+            error=data.get('error'),
+            owner_user_id=data.get('owner_user_id'),
         )
 
 
@@ -113,7 +118,12 @@ class ProjectManager:
     def _get_project_dir(cls, project_id: str) -> str:
         """Get project directory path"""
         return os.path.join(cls.PROJECTS_DIR, project_id)
-    
+
+    @classmethod
+    def get_project_dir(cls, project_id: str) -> str:
+        """Path to the project's on-disk data directory."""
+        return cls._get_project_dir(project_id)
+
     @classmethod
     def _get_project_meta_path(cls, project_id: str) -> str:
         """Get project metadata file path"""
@@ -130,12 +140,13 @@ class ProjectManager:
         return os.path.join(cls._get_project_dir(project_id), 'extracted_text.txt')
     
     @classmethod
-    def create_project(cls, name: str = "Unnamed Project") -> Project:
+    def create_project(cls, name: str = "Unnamed Project", owner_user_id: Optional[str] = None) -> Project:
         """
         Create new project
 
         Args:
             name: Project name
+            owner_user_id: Optional tenant id (e.g. from X-MiroFish-User)
 
         Returns:
             Newly created Project object
@@ -150,7 +161,8 @@ class ProjectManager:
             name=name,
             status=ProjectStatus.CREATED,
             created_at=now,
-            updated_at=now
+            updated_at=now,
+            owner_user_id=owner_user_id,
         )
         
         # Create project directory structure
@@ -195,29 +207,41 @@ class ProjectManager:
         return Project.from_dict(data)
     
     @classmethod
-    def list_projects(cls, limit: int = 50) -> List[Project]:
+    def list_projects(
+        cls,
+        limit: int = 50,
+        owner_user_id: Optional[str] = None,
+    ) -> List[Project]:
         """
-        List all projects
+        List projects under ``PROJECTS_DIR``.
 
         Args:
-            limit: Return count limit
+            limit: Return count limit (after sort).
+            owner_user_id: If set, only projects whose ``owner_user_id`` equals
+                this value are included. If ``None``, all projects are listed
+                (backward compatible).
 
         Returns:
             List of projects, sorted by creation time descending
         """
         cls._ensure_projects_dir()
-        
+
         projects = []
         for project_id in os.listdir(cls.PROJECTS_DIR):
             project = cls.get_project(project_id)
             if project:
                 projects.append(project)
-        
+
+        if owner_user_id is not None:
+            projects = [
+                p for p in projects if p.owner_user_id == owner_user_id
+            ]
+
         # Sort by creation time descending
         projects.sort(key=lambda p: p.created_at, reverse=True)
-        
+
         return projects[:limit]
-    
+
     @classmethod
     def delete_project(cls, project_id: str) -> bool:
         """

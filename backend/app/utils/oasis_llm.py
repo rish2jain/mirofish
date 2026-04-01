@@ -230,8 +230,11 @@ def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
     resolved = resolve_oasis_llm_config(config, use_boost=use_boost)
 
     if resolved.is_cli:
-        print(
-            f"{resolved.label} provider={resolved.provider}, model={resolved.model}, mode=cli-bridge"
+        logger.info(
+            "%s provider=%s, model=%s, mode=cli-bridge",
+            resolved.label,
+            resolved.provider,
+            resolved.model,
         )
         return CLIModel(
             model_type=resolved.model,
@@ -247,9 +250,15 @@ def create_oasis_model(config: Dict[str, Any], use_boost: bool = False):
             'or use LLM_PROVIDER=claude-cli/codex-cli.'
         )
 
-    print(
-        f"{resolved.label} provider={resolved.provider}, model={resolved.model}, "
-        f"base_url={resolved.base_url[:40] if resolved.base_url else 'default'}..."
+    base_url_display = (
+        resolved.base_url[:40] + "..." if resolved.base_url else "default"
+    )
+    logger.info(
+        "%s provider=%s, model=%s, base_url=%s",
+        resolved.label,
+        resolved.provider,
+        resolved.model,
+        base_url_display,
     )
 
     return ModelFactory.create(

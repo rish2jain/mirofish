@@ -4,18 +4,15 @@ Reads nodes from the graph, filters by entity types.
 Built on local KuzuDB graph storage.
 """
 
-import time
-from typing import Dict, Any, List, Optional, Set, Callable, TypeVar
+import threading
+from typing import Dict, Any, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 
-from ..config import Config
 from ..utils.logger import get_logger
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
 
 logger = get_logger('mirofish.entity_reader')
-
-T = TypeVar('T')
 
 
 @dataclass
@@ -383,25 +380,53 @@ class EntityReader:
         self,
         graph_id: str,
         entity_type: str,
-        enrich_with_edges: bool = True
-    ) -> List[EntityNode]:
+        enrich_with_edges: bool = True,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Tuple[List[EntityNode], int]:
         """
-        Get all entities of a specific type.
+        Get entities of a specific type with offset/limit slicing.
 
         Args:
             graph_id: Graph ID
             entity_type: Entity type (e.g., "Student", "PublicFigure")
             enrich_with_edges: Whether to include related edge info
+            limit: Max entities to return (caller should validate; must be >= 1)
+            offset: Number of matching entities to skip (caller should validate; must be >= 0)
 
         Returns:
-            List of entities
+            (page of entities, total count of matches before pagination)
         """
         result = self.filter_defined_entities(
             graph_id=graph_id,
             defined_entity_types=[entity_type],
             enrich_with_edges=enrich_with_edges
         )
-        return result.entities
+        all_entities = result.entities
+        total = len(all_entities)
+        start = offset
+        end = offset + limit
+        return all_entities[start:end], total
+
+
+_entity_reader_lock = threading.Lock()
+_entity_reader_instance: Optional[EntityReader] = None
+
+
+def get_entity_reader() -> EntityReader:
+    """
+    Shared EntityReader for HTTP handlers (one instance per worker process).
+
+    Operations are keyed by graph_id via GraphDatabase; no per-request mutable
+    state on the reader. Lazy init is thread-safe for multi-threaded WSGI servers.
+    """
+    global _entity_reader_instance
+    if _entity_reader_instance is None:
+        with _entity_reader_lock:
+            if _entity_reader_instance is None:
+                _entity_reader_instance = EntityReader()
+    return _entity_reader_instance
 
 
 KuzuEntityReader = EntityReader

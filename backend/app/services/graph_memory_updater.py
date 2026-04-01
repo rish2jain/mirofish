@@ -4,16 +4,13 @@ Dynamically updates the knowledge graph with agent activities from simulation.
 Built on local KuzuDB graph storage.
 """
 
-import os
 import time
 import threading
-import json
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Queue, Empty
 
-from ..config import Config
 from ..utils.logger import get_logger
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage

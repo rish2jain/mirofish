@@ -6,7 +6,7 @@ These models define the exact shape of LLM responses, eliminating prompt-based
 JSON hacks and post-hoc parsing.
 """
 
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel, Field
 
 

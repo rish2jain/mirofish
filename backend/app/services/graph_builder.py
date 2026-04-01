@@ -6,13 +6,12 @@ Builds knowledge graphs using KuzuDB (embedded) + LLM-based entity extraction.
 import os
 import shutil
 import uuid
-import threading
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..config import Config
 from ..models.task import TaskManager, TaskStatus
+from ..utils.background_tasks import BackgroundTaskRegistry
 from .text_processor import TextProcessor
 from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
@@ -98,12 +97,11 @@ class GraphBuilderService:
             }
         )
 
-        thread = threading.Thread(
+        BackgroundTaskRegistry.start(
+            name=f"graph-builder:{task_id}",
             target=self._build_graph_worker,
-            args=(task_id, text, ontology, graph_name, chunk_size, chunk_overlap, batch_size)
+            args=(task_id, text, ontology, graph_name, chunk_size, chunk_overlap, batch_size),
         )
-        thread.daemon = True
-        thread.start()
 
         return task_id
 
@@ -259,7 +257,6 @@ class GraphBuilderService:
             if not name:
                 continue
             entity_type = entity.get("type", "Entity")
-            labels = ["Entity", entity_type] if entity_type != "Entity" else ["Entity"]
             summary = entity.get("summary", "")
 
             node_id = storage.add_node(

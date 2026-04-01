@@ -20,7 +20,7 @@ from .graph_db import GraphDatabase
 from .graph_storage import GraphStorage
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
-from .entity_reader import EntityNode, EntityReader
+from .entity_reader import EntityNode
 
 logger = get_logger('mirofish.oasis_profile')
 
@@ -508,7 +508,6 @@ class OasisProfileGenerator:
             except Exception as e:
                 logger.warning(f"LLM call failed (attempt {attempt+1}): {str(e)[:80]}")
                 last_error = e
-                import time
                 time.sleep(1 * (attempt + 1))  # Exponential backoff
 
         logger.warning(f"LLM persona generation failed ({max_attempts} attempts): {last_error}, falling back to rule-based generation")
@@ -518,7 +517,6 @@ class OasisProfileGenerator:
 
     def _fix_truncated_json(self, content: str) -> str:
         """Fix truncated JSON (output was cut off by max_tokens limit)"""
-        import re
 
         # If JSON was truncated, try to close it
         content = content.strip()
@@ -569,7 +567,7 @@ class OasisProfileGenerator:
                 result = json.loads(json_str)
                 result["_fixed"] = True
                 return result
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 # 5. If still failing, try more aggressive fixes
                 try:
                     # Remove all control characters
@@ -579,8 +577,12 @@ class OasisProfileGenerator:
                     result = json.loads(json_str)
                     result["_fixed"] = True
                     return result
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        "Secondary JSON parse after aggressive cleanup failed (%s): %s",
+                        entity_name,
+                        e,
+                    )
 
         # 6. Try to extract partial information from content
         bio_match = re.search(r'"bio"\s*:\s*"([^"]*)"', content)
@@ -591,7 +593,7 @@ class OasisProfileGenerator:
 
         # If meaningful content was extracted, mark as fixed
         if bio_match or persona_match:
-            logger.info(f"Extracted partial information from corrupted JSON")
+            logger.info("Extracted partial information from corrupted JSON")
             return {
                 "bio": bio,
                 "persona": persona,
@@ -599,7 +601,7 @@ class OasisProfileGenerator:
             }
 
         # 7. Complete failure, return basic structure
-        logger.warning(f"JSON repair failed, returning basic structure")
+        logger.warning("JSON repair failed, returning basic structure")
         return {
             "bio": entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}",
             "persona": entity_summary or f"{entity_name} is a {entity_type}."
@@ -733,7 +735,7 @@ Important:
 
         elif entity_type_lower in ["publicfigure", "expert", "faculty"]:
             return {
-                "bio": f"Expert and thought leader in their field.",
+                "bio": "Expert and thought leader in their field.",
                 "persona": f"{entity_name} is a recognized {entity_type.lower()} who shares insights and opinions on important matters. They are known for their expertise and influence in public discourse.",
                 "age": random.randint(35, 60),
                 "gender": random.choice(["male", "female"]),
@@ -885,16 +887,17 @@ Important:
                     user_name=self._generate_username(entity.name),
                     name=entity.name,
                     bio=f"{entity_type}: {entity.name}",
-                    persona=entity.summary or f"A participant in social discussions.",
+                    persona=entity.summary or "A participant in social discussions.",
                     source_entity_uuid=entity.uuid,
                     source_entity_type=entity_type,
                 )
                 return idx, fallback_profile, str(e)
 
-        logger.info(f"Starting parallel generation of {total} Agent personas (parallelism: {parallel_count})...")
-        print(f"\n{'='*60}")
-        print(f"Starting Agent persona generation - {total} entities, parallelism: {parallel_count}")
-        print(f"{'='*60}\n")
+        logger.info(
+            "Starting parallel generation of %s Agent personas (parallelism: %s)...",
+            total,
+            parallel_count,
+        )
 
         # Use thread pool for parallel execution
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_count) as executor:
@@ -948,9 +951,8 @@ Important:
                     # Write to file in real time (even for fallback personas)
                     save_profiles_realtime()
 
-        print(f"\n{'='*60}")
-        print(f"Persona generation complete! Generated {len([p for p in profiles if p])} Agents")
-        print(f"{'='*60}\n")
+        n_done = len([p for p in profiles if p])
+        logger.info("Persona generation complete: %s Agents", n_done)
 
         return profiles
 
@@ -966,14 +968,14 @@ Important:
             f"[Generated] {entity_name} ({entity_type})",
             f"{separator}",
             f"Username: {profile.user_name}",
-            f"",
-            f"[Bio]",
+            "",
+            "[Bio]",
             f"{profile.bio}",
-            f"",
-            f"[Detailed Persona]",
+            "",
+            "[Detailed Persona]",
             f"{profile.persona}",
-            f"",
-            f"[Basic Attributes]",
+            "",
+            "[Basic Attributes]",
             f"Age: {profile.age} | Gender: {profile.gender} | MBTI: {profile.mbti}",
             f"Profession: {profile.profession} | Country: {profile.country}",
             f"Interested Topics: {topics_str}",
@@ -982,8 +984,7 @@ Important:
 
         output = "\n".join(output_lines)
 
-        # Only output to console (avoid duplication, logger no longer outputs full content)
-        print(output)
+        logger.debug("Generated profile detail:\n%s", output)
 
     def save_profiles(
         self,

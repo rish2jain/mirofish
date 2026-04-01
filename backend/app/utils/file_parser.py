@@ -3,9 +3,8 @@ File Parsing Utility
 Supports text extraction from PDF, Markdown, and TXT files
 """
 
-import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 
 def _read_text_with_fallback(file_path: str) -> str:
@@ -90,8 +89,6 @@ class FileParser:
             return cls._extract_from_md(file_path)
         elif suffix == '.txt':
             return cls._extract_from_txt(file_path)
-        
-        raise ValueError(f"Cannot process file format: {suffix}")
     
     @staticmethod
     def _extract_from_pdf(file_path: str) -> str:
