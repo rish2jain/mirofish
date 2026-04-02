@@ -1121,13 +1121,16 @@ class GraphToolsService:
 
         Decomposes a complex question into multiple sub-queries that can be independently retrieved.
         """
-        system_prompt = """You are a professional problem analysis expert. Your task is to decompose a complex question into multiple sub-questions that can be independently observed in a simulated world.
+        system_prompt = """You are a professional strategic analysis expert. Your task is to decompose a complex question into multiple sub-questions that search for actionable insights in a simulated world.
 
 Requirements:
-1. Each sub-question should be specific enough to find relevant agent behaviors or events in the simulated world
-2. Sub-questions should cover different dimensions of the original question (e.g., who, what, why, how, when, where)
-3. Sub-questions should be relevant to the simulation scenario
-4. Return in JSON format: {"sub_queries": ["sub-question 1", "sub-question 2", ...]}"""
+1. Each sub-question should seek forward-looking, prescriptive information — strategies that work, \
+actions that succeed, opportunities to capture, risks to mitigate
+2. Sub-questions should cover different strategic dimensions (e.g., channels, products, partnerships, \
+risks, consumer segments, competitive positioning)
+3. Prefer "what strategies succeed" and "what drives growth" over "what happened" or "who is involved"
+4. At least one sub-question should focus on risks or failure modes
+5. Return in JSON format: {"sub_queries": ["sub-question 1", "sub-question 2", ...]}"""
 
         user_prompt = f"""Simulation requirement background:
 {simulation_requirement}
@@ -1154,12 +1157,12 @@ Return the sub-question list in JSON format."""
 
         except Exception as e:
             logger.warning(f"Failed to generate sub-queries: {str(e)}, using default sub-queries")
-            # Fallback: return variants based on the original query
+            # Fallback: return forward-looking variants based on the original query
             return [
                 query,
-                f"Key participants in {query}",
-                f"Causes and effects of {query}",
-                f"Development process of {query}"
+                f"What strategies succeed for {query}",
+                f"What risks or failures are associated with {query}",
+                f"What opportunities exist for {query}"
             ][:max_queries]
 
     def panorama_search(

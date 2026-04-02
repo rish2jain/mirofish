@@ -512,7 +512,139 @@ class SimulationRunner:
             raise
         
         return state
-    
+
+    @classmethod
+    def start_env_only(cls, simulation_id: str) -> SimulationRunState:
+        """Start the OASIS environment in command-waiting mode without
+        re-running simulation rounds. Uses existing profiles and databases.
+
+        This enables the interview API for report generation on simulations
+        that have already completed or were interrupted.
+
+        Args:
+            simulation_id: Simulation ID (must have existing profiles and DBs)
+
+        Returns:
+            SimulationRunState
+        """
+        # Check if already running — but verify the process is actually alive
+        existing = cls.get_run_state(simulation_id)
+        if existing and existing.runner_status in [RunnerStatus.RUNNING, RunnerStatus.STARTING]:
+            # Check if the process is actually alive
+            pid = existing.process_pid
+            process_alive = False
+            if pid:
+                try:
+                    os.kill(pid, 0)  # Signal 0 = check existence
+                    process_alive = True
+                except (OSError, ProcessLookupError):
+                    pass
+
+            if process_alive:
+                raise ValueError(f"Simulation is already running: {simulation_id}")
+
+            # Process is dead — clean up stale state
+            logger.info(
+                f"Cleaning up stale run state for {simulation_id} "
+                f"(pid={pid} no longer alive)"
+            )
+            existing.runner_status = RunnerStatus.FAILED
+            existing.error = "Process terminated unexpectedly"
+            cls._save_run_state(existing)
+
+        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        config_path = os.path.join(sim_dir, "simulation_config.json")
+
+        if not os.path.exists(config_path):
+            raise ValueError("Simulation configuration does not exist")
+
+        # Verify at least one platform has profiles + DB
+        has_twitter = (
+            os.path.exists(os.path.join(sim_dir, "twitter_profiles.csv"))
+            and os.path.exists(os.path.join(sim_dir, "twitter_simulation.db"))
+        )
+        has_reddit = (
+            os.path.exists(os.path.join(sim_dir, "reddit_profiles.json"))
+            and os.path.exists(os.path.join(sim_dir, "reddit_simulation.db"))
+        )
+
+        if not has_twitter and not has_reddit:
+            raise ValueError(
+                "No existing simulation data found (need profiles + DB). "
+                "Run the simulation first."
+            )
+
+        state = SimulationRunState(
+            simulation_id=simulation_id,
+            runner_status=RunnerStatus.STARTING,
+            total_rounds=0,
+            total_simulation_hours=0,
+            started_at=datetime.now().isoformat(),
+        )
+        state.twitter_running = has_twitter
+        state.reddit_running = has_reddit
+        cls._save_run_state(state)
+
+        script_path = os.path.join(cls.SCRIPTS_DIR, "run_parallel_simulation.py")
+
+        try:
+            cmd = [
+                sys.executable,
+                script_path,
+                "--config", config_path,
+                "--wait-only",
+            ]
+
+            main_log_path = os.path.join(sim_dir, "simulation.log")
+            main_log_file = open(main_log_path, 'a', encoding='utf-8')
+
+            env = os.environ.copy()
+            env['PYTHONUTF8'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+            process = subprocess.Popen(
+                cmd,
+                cwd=sim_dir,
+                stdout=main_log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                bufsize=1,
+                env=env,
+                start_new_session=True,
+            )
+
+            with cls._runner_lock:
+                cls._stdout_files[simulation_id] = main_log_file
+                cls._stderr_files[simulation_id] = None
+                state.process_pid = process.pid
+                cls._processes[simulation_id] = process
+
+            state.runner_status = RunnerStatus.RUNNING
+            cls._save_run_state(state)
+
+            monitor_thread = threading.Thread(
+                target=cls._monitor_simulation,
+                args=(simulation_id,),
+                daemon=True
+            )
+            monitor_thread.start()
+            with cls._runner_lock:
+                cls._monitor_threads[simulation_id] = monitor_thread
+
+            logger.info(
+                f"Environment started (wait-only): {simulation_id}, "
+                f"pid={process.pid}, twitter={has_twitter}, reddit={has_reddit}"
+            )
+
+        except Exception as e:
+            state.runner_status = RunnerStatus.FAILED
+            state.error = str(e)
+            cls._save_run_state(state)
+            raise
+
+        return state
+
     @classmethod
     def _monitor_simulation(cls, simulation_id: str):
         """Monitor simulation process, parse action logs"""

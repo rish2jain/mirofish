@@ -1048,6 +1048,120 @@ class PlatformSimulation:
         self.total_actions = 0
 
 
+async def load_twitter_env(
+    config: Dict[str, Any],
+    simulation_dir: str,
+    main_logger: Optional[SimulationLogManager] = None,
+) -> PlatformSimulation:
+    """Load Twitter OASIS environment from existing profiles and DB
+    without running simulation rounds. Used by --wait-only mode.
+
+    Args:
+        config: Simulation configuration
+        simulation_dir: Simulation directory (must contain twitter_profiles.csv
+            and twitter_simulation.db)
+        main_logger: Main log manager
+
+    Returns:
+        PlatformSimulation with env and agent_graph ready for interviews
+    """
+    result = PlatformSimulation()
+
+    def log_info(msg: str) -> None:
+        if main_logger:
+            main_logger.info(f"[Twitter] {msg}")
+        print(f"[Twitter] {msg}")
+
+    log_info("Loading environment from existing data (wait-only mode)...")
+
+    model = create_model(config, use_boost=False)
+
+    profile_path = os.path.join(simulation_dir, "twitter_profiles.csv")
+    if not os.path.exists(profile_path):
+        log_info(f"Error: Profile file does not exist: {profile_path}")
+        return result
+
+    db_path = os.path.join(simulation_dir, "twitter_simulation.db")
+    if not os.path.exists(db_path):
+        log_info(f"Error: Database file does not exist: {db_path}")
+        return result
+
+    result.agent_graph = await generate_twitter_agent_graph(
+        profile_path=profile_path,
+        model=model,
+        available_actions=TWITTER_ACTIONS,
+    )
+
+    # Do NOT delete existing DB — reuse it
+    result.env = oasis.make(
+        agent_graph=result.agent_graph,
+        platform=oasis.DefaultPlatformType.TWITTER,
+        database_path=db_path,
+        semaphore=get_oasis_semaphore(config, use_boost=False),
+    )
+
+    await result.env.reset()
+    log_info("Environment loaded (existing DB preserved)")
+    return result
+
+
+async def load_reddit_env(
+    config: Dict[str, Any],
+    simulation_dir: str,
+    main_logger: Optional[SimulationLogManager] = None,
+) -> PlatformSimulation:
+    """Load Reddit OASIS environment from existing profiles and DB
+    without running simulation rounds. Used by --wait-only mode.
+
+    Args:
+        config: Simulation configuration
+        simulation_dir: Simulation directory (must contain reddit_profiles.json
+            and reddit_simulation.db)
+        main_logger: Main log manager
+
+    Returns:
+        PlatformSimulation with env and agent_graph ready for interviews
+    """
+    result = PlatformSimulation()
+
+    def log_info(msg: str) -> None:
+        if main_logger:
+            main_logger.info(f"[Reddit] {msg}")
+        print(f"[Reddit] {msg}")
+
+    log_info("Loading environment from existing data (wait-only mode)...")
+
+    model = create_model(config, use_boost=True)
+
+    profile_path = os.path.join(simulation_dir, "reddit_profiles.json")
+    if not os.path.exists(profile_path):
+        log_info(f"Error: Profile file does not exist: {profile_path}")
+        return result
+
+    db_path = os.path.join(simulation_dir, "reddit_simulation.db")
+    if not os.path.exists(db_path):
+        log_info(f"Error: Database file does not exist: {db_path}")
+        return result
+
+    result.agent_graph = await generate_reddit_agent_graph(
+        profile_path=profile_path,
+        model=model,
+        available_actions=REDDIT_ACTIONS,
+    )
+
+    # Do NOT delete existing DB — reuse it
+    result.env = oasis.make(
+        agent_graph=result.agent_graph,
+        platform=oasis.DefaultPlatformType.REDDIT,
+        database_path=db_path,
+        semaphore=get_oasis_semaphore(config, use_boost=True),
+    )
+
+    await result.env.reset()
+    log_info("Environment loaded (existing DB preserved)")
+    return result
+
+
 async def run_twitter_simulation(
     config: Dict[str, Any],
     simulation_dir: str,
@@ -1469,7 +1583,13 @@ async def main():
         default=False,
         help='Shut down environment immediately after simulation, do not enter command-waiting mode'
     )
-    
+    parser.add_argument(
+        '--wait-only',
+        action='store_true',
+        default=False,
+        help='Load existing environment (skip simulation) and enter command-waiting mode for interviews'
+    )
+
     args = parser.parse_args()
     
     # Create shutdown event at the beginning of main, ensuring the entire program can respond to shutdown signals
@@ -1521,26 +1641,46 @@ async def main():
     log_manager.info("=" * 60)
     
     start_time = datetime.now()
-    
+
     # Store simulation results for both platforms
     twitter_result: Optional[PlatformSimulation] = None
     reddit_result: Optional[PlatformSimulation] = None
-    
-    if args.twitter_only:
-        twitter_result = await run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds)
-    elif args.reddit_only:
-        reddit_result = await run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds)
+
+    if args.wait_only:
+        # --wait-only: load environments from existing data, skip simulation rounds
+        log_manager.info("WAIT-ONLY MODE: loading environments from existing data")
+        wait_for_commands = True  # Force command-waiting mode
+
+        if args.twitter_only:
+            twitter_result = await load_twitter_env(config, simulation_dir, log_manager)
+        elif args.reddit_only:
+            reddit_result = await load_reddit_env(config, simulation_dir, log_manager)
+        else:
+            results = await asyncio.gather(
+                load_twitter_env(config, simulation_dir, log_manager),
+                load_reddit_env(config, simulation_dir, log_manager),
+            )
+            twitter_result, reddit_result = results
+
+        total_elapsed = (datetime.now() - start_time).total_seconds()
+        log_manager.info("=" * 60)
+        log_manager.info(f"Environments loaded in {total_elapsed:.1f}s (wait-only mode)")
     else:
-        # Run in parallel (each platform uses an independent logger)
-        results = await asyncio.gather(
-            run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds),
-            run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds),
-        )
-        twitter_result, reddit_result = results
-    
-    total_elapsed = (datetime.now() - start_time).total_seconds()
-    log_manager.info("=" * 60)
-    log_manager.info(f"Simulation loop completed! Total time elapsed: {total_elapsed:.1f}s")
+        if args.twitter_only:
+            twitter_result = await run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds)
+        elif args.reddit_only:
+            reddit_result = await run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds)
+        else:
+            # Run in parallel (each platform uses an independent logger)
+            results = await asyncio.gather(
+                run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds),
+                run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds),
+            )
+            twitter_result, reddit_result = results
+
+        total_elapsed = (datetime.now() - start_time).total_seconds()
+        log_manager.info("=" * 60)
+        log_manager.info(f"Simulation loop completed! Total time elapsed: {total_elapsed:.1f}s")
     
     # Whether to enter command-waiting mode
     if wait_for_commands:

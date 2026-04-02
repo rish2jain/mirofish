@@ -553,6 +553,47 @@ def get_env_status():
         }), 500
 
 
+@simulation_bp.route('/start-env', methods=['POST'])
+def start_simulation_env():
+    """
+    Start the OASIS environment in command-waiting mode without re-running
+    simulation rounds.  Uses existing profiles and databases so the interview
+    API becomes available for report generation.
+
+    Request JSON:
+        {"simulation_id": "sim_xxxx"}
+
+    Response:
+        {"success": true, "data": {"simulation_id": "...", "message": "..."}}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        simulation_id = data.get("simulation_id")
+
+        if not simulation_id:
+            return jsonify({"success": False, "error": "Please provide simulation_id"}), 400
+
+        state = SimulationRunner.start_env_only(simulation_id)
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "simulation_id": simulation_id,
+                "pid": state.process_pid,
+                "message": (
+                    "Environment starting in wait-only mode. "
+                    "Use /env-status to check when it is alive."
+                ),
+            },
+        })
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Failed to start environment: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @simulation_bp.route('/close-env', methods=['POST'])
 def close_simulation_env():
     """

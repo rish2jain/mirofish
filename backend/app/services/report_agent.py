@@ -10,6 +10,7 @@ Features:
 """
 
 import json
+import os
 import re
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -1313,6 +1314,34 @@ class ReportAgent:
 
                 # Use ReportManager to assemble the complete report
                 report.markdown_content = ReportManager.assemble_full_report(report_id, outline)
+
+                # Phase 3b: Independent validation and refinement
+                if progress_callback:
+                    progress_callback("validating", 96, "Validating and refining report...")
+                ReportManager.update_progress(
+                    report_id, "validating", 96,
+                    "Independent validation and refinement in progress...",
+                    completed_sections=completed_section_titles
+                )
+
+                try:
+                    refined_content = self._validate_and_refine_report(
+                        report.markdown_content,
+                        outline,
+                    )
+                    if refined_content:
+                        report.markdown_content = refined_content
+                        # Re-save refined sections
+                        self._save_refined_sections(report_id, refined_content, outline)
+                        logger.info("Report refined by validation pass: %s", report_id)
+                    else:
+                        logger.info("Validation pass returned no changes: %s", report_id)
+                except Exception as ve:
+                    logger.warning(
+                        "Validation pass failed (keeping original report): %s — %s",
+                        report_id, ve,
+                    )
+
                 report.status = ReportStatus.COMPLETED
                 report.completed_at = datetime.now().isoformat()
 
@@ -1363,6 +1392,109 @@ class ReportAgent:
 
         finally:
             self.console_logger = None
+
+    # ------------------------------------------------------------------
+    # Independent validation & refinement (fresh LLM call)
+    # ------------------------------------------------------------------
+
+    def _validate_and_refine_report(
+        self,
+        markdown_content: str,
+        outline: 'ReportOutline',
+    ) -> Optional[str]:
+        """Run an independent LLM call to validate and refine the report.
+
+        The reviewer checks for:
+        - Fabricated statistics not grounded in simulation data
+        - Backward-looking narrative that doesn't answer the user's question
+        - Claims presented as fact that should be labeled as simulation outputs
+        - Factual errors about publicly known events
+
+        Returns refined markdown, or None if no changes needed.
+        """
+        from .report_prompts import REPORT_VALIDATION_PROMPT
+
+        if self.console_logger:
+            self.console_logger.log("Starting independent validation pass...")
+
+        system_prompt = REPORT_VALIDATION_PROMPT.format(
+            simulation_requirement=self.simulation_requirement,
+        )
+
+        user_prompt = (
+            "Here is the full report to validate and refine:\n\n"
+            f"{markdown_content}\n\n"
+            "Return the refined report in full. If no changes are needed, "
+            "return the report unchanged."
+        )
+
+        try:
+            refined = self.llm.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+            )
+
+            # Basic sanity check: refined content should be substantial
+            if refined and len(refined.strip()) > len(markdown_content) * 0.5:
+                if self.console_logger:
+                    self.console_logger.log("Validation pass completed — report refined")
+                return refined.strip()
+            else:
+                if self.console_logger:
+                    self.console_logger.log(
+                        "Validation pass returned insufficient content; keeping original"
+                    )
+                return None
+
+        except Exception as e:
+            if self.console_logger:
+                self.console_logger.log(f"Validation pass failed: {e}")
+            raise
+
+    def _save_refined_sections(
+        self,
+        report_id: str,
+        refined_markdown: str,
+        outline: 'ReportOutline',
+    ) -> None:
+        """Re-save individual section files from refined full markdown."""
+        import re
+
+        # Split on ## headings
+        section_pattern = re.compile(r'^## ', re.MULTILINE)
+        parts = section_pattern.split(refined_markdown)
+
+        # First part is the header (title, summary, ---), skip it
+        section_bodies = []
+        for part in parts[1:]:  # skip preamble
+            lines = part.split('\n', 1)
+            title = lines[0].strip()
+            body = lines[1].strip() if len(lines) > 1 else ""
+            section_bodies.append((title, body))
+
+        for i, (title, body) in enumerate(section_bodies):
+            section_num = i + 1
+            # Update outline section content
+            if i < len(outline.sections):
+                outline.sections[i].content = body
+            # Save section file
+            section_content = f"## {title}\n\n{body}"
+            section_path = os.path.join(
+                ReportManager.REPORTS_DIR, report_id, f"section_{section_num:02d}.md"
+            )
+            with open(section_path, 'w', encoding='utf-8') as f:
+                f.write(section_content)
+
+        # Re-save full report
+        full_path = os.path.join(ReportManager.REPORTS_DIR, report_id, "full_report.md")
+        with open(full_path, 'w', encoding='utf-8') as f:
+            f.write(refined_markdown)
+
+        # Re-save outline
+        ReportManager.save_outline(report_id, outline)
 
     def _get_cached_report_content(self) -> str:
         """Load report markdown once per agent instance; return truncated prompt text."""
