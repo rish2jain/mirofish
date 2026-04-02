@@ -23,6 +23,52 @@ from ..utils.retry import RetryableAPIClient
 
 logger = get_logger('mirofish.graph_tools')
 
+_RISK_SUBQUERY_KEYWORDS = ("risk", "failure", "mitigate", "failure mode")
+
+
+def _matches_risk_subquery(text: str) -> bool:
+    low = text.lower()
+    return any(kw in low for kw in _RISK_SUBQUERY_KEYWORDS)
+
+
+def _find_first_risk_subquery(candidates: List[str]) -> Optional[str]:
+    for sq in candidates:
+        s = str(sq).strip()
+        if s and _matches_risk_subquery(s):
+            return s
+    return None
+
+
+def _dedupe_sub_queries_preserve_order(items: List[str]) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for item in items:
+        s = str(item).strip()
+        if s and s not in seen:
+            out.append(s)
+            seen.add(s)
+    return out
+
+
+def select_sub_queries_with_risk_guarantee(
+    raw_candidates: List[str],
+    max_queries: int,
+) -> List[str]:
+    """Pick up to ``max_queries`` sub-queries, keeping a risk/failure query when one exists in the full list."""
+    if max_queries <= 0:
+        return []
+    deduped = _dedupe_sub_queries_preserve_order(raw_candidates)
+    if not deduped:
+        return []
+    risk_q = _find_first_risk_subquery(deduped)
+    selected = deduped[:max_queries]
+    if risk_q and risk_q not in selected:
+        if len(selected) < max_queries:
+            selected = selected + [risk_q]
+        else:
+            selected = selected[:-1] + [risk_q]
+    return selected
+
 
 @dataclass
 class SearchResult:
@@ -1152,18 +1198,19 @@ Return the sub-question list in JSON format."""
             )
 
             sub_queries = response.get("sub_queries", [])
-            # Ensure it's a list of strings
-            return [str(sq) for sq in sub_queries[:max_queries]]
+            strings = [str(sq).strip() for sq in sub_queries if str(sq).strip()]
+            return select_sub_queries_with_risk_guarantee(strings, max_queries)
 
         except Exception as e:
             logger.warning(f"Failed to generate sub-queries: {str(e)}, using default sub-queries")
-            # Fallback: return forward-looking variants based on the original query
-            return [
+            # Fallback: forward-looking variants (same risk guarantee as success path)
+            fallback = [
                 query,
                 f"What strategies succeed for {query}",
                 f"What risks or failures are associated with {query}",
-                f"What opportunities exist for {query}"
-            ][:max_queries]
+                f"What opportunities exist for {query}",
+            ]
+            return select_sub_queries_with_risk_guarantee(fallback, max_queries)
 
     def panorama_search(
         self,

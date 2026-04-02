@@ -30,7 +30,6 @@
     {"source": "PhRMA", "target": "Pfizer", "type": "SUPPORTS"},
     {"source": "Doctors Without Borders", "target": "Pfizer", "type": "OPPOSES"},
     {"source": "World Health Organization", "target": "Pfizer", "type": "OPPOSES"},
-    {"source": "Roche", "target": "Pfizer", "type": "COMPETES_WITH"},
-    {"source": "Bristol-Myers Squibb", "target": "Pfizer", "type": "COMPETES_WITH"}
+    {"source": "Roche", "target": "Pfizer", "type": "COMPETES_WITH"}
   ]
 }

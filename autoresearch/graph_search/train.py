@@ -25,18 +25,32 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_strategy():
-    spec = importlib.util.spec_from_file_location(
-        "search_strategy",
-        os.path.join(SCRIPT_DIR, "strategies", "search_strategy.py"),
-    )
+    strategy_path = os.path.join(SCRIPT_DIR, "strategies", "search_strategy.py")
+    spec = importlib.util.spec_from_file_location("search_strategy", strategy_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            f"Cannot load search strategy from {strategy_path}: "
+            "file missing or not a loadable Python module"
+        )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 def load_data():
-    from prepare import load_graph, load_queries
-    return load_graph(), load_queries()
+    prepare_path = os.path.join(SCRIPT_DIR, "prepare.py")
+    spec = importlib.util.spec_from_file_location(
+        "graph_search_prepare",
+        prepare_path,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            f"Cannot load prepare module from {prepare_path}: "
+            "file missing or not a loadable Python module"
+        )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.load_graph(), mod.load_queries()
 
 
 def run_search(

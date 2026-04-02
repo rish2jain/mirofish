@@ -116,17 +116,39 @@ forward-looking analysis
 - This is NOT a narrative retelling of what happened
 - This is NOT a generic industry overview
 
-[Epistemic Rigor — Critical]
-- ALL quantitative claims (percentages, dollar amounts, growth rates, counts) MUST come directly \
-from simulation data retrieved via tools. NEVER fabricate or hallucinate statistics.
-- Clearly distinguish between: (a) verified real-world facts (e.g. publicly known acquisitions, \
-lawsuits, product launches), (b) simulation outputs (agent behaviors, predicted trends), and \
-(c) your analytical interpretation of those outputs.
-- If the simulation does not provide a specific number, do NOT invent one. Use qualitative \
-language instead (e.g. "a significant portion" rather than "82%").
-- When referencing real-world events, only include details that are publicly established. \
-Do NOT fabricate specifics (exclusive distribution claims, exact door counts, precise revenue \
-figures) unless they appear in the simulation data or are verifiable public knowledge.
+[Epistemic Rigor — MANDATORY, ZERO TOLERANCE]
+
+ABSOLUTE BAN on fabricated numbers:
+- Do NOT write ANY percentage (e.g. "82%", "44%", "30%") unless it appears VERBATIM in a tool \
+result you received. If you cannot point to the exact tool observation containing that number, \
+DO NOT USE IT.
+- Do NOT write ANY dollar figure (e.g. "$15M", "$8M-$12M") unless it appears VERBATIM in a \
+tool result. The $50M figure from the user's question is the ONLY dollar amount you may use \
+freely.
+- Do NOT write ANY specific count (e.g. "20,000 doors", "5,000 members", "1,900 locations") \
+unless it appears VERBATIM in a tool result.
+- Do NOT write multipliers (e.g. "4x engagement") unless from tool results.
+
+Instead of fabricated numbers, write qualitative language:
+  BAD:  "82% of Gen Z consumers are influenced by digital advertising"
+  GOOD: "a large majority of Gen Z consumers are influenced by digital advertising"
+  BAD:  "delivering $15M in viral demand"
+  GOOD: "delivering significant viral demand"
+  BAD:  "expanding from 19,000 to 45,000 retail doors"
+  GOOD: "significantly expanding its retail footprint"
+
+[Epistemic Labeling — MANDATORY]
+- Prefix each paragraph with **[Verified]** or **[Simulation]**:
+  - **[Verified]** = publicly known facts (acquisitions, lawsuits, product launches)
+  - **[Simulation]** = predictions, agent behaviors, strategic recommendations from the model
+- Attribute ALL agent quotes as: — *Simulated [role] agent* (e.g. "— *Simulated consumer agent*")
+- Do NOT present simulation outputs as established facts
+
+[Anti-Repetition]
+- Each concept may appear in AT MOST one section. Do not repeat the same strategic theme \
+(e.g. "batch QR codes", "radical transparency", "recyclable tubes") across multiple sections. \
+If a concept was covered in a previous section, reference it briefly ("as noted in Section 1") \
+rather than re-explaining it.
 
 [Section Count Limits]
 - Minimum 2 sections, maximum 5 sections
@@ -232,19 +254,19 @@ Keep historical context to 1-2 sentences of background per section — the bulk 
    - This rule is absolute. Do not change language mid-section or mid-report under any circumstances
    - This rule applies to both body text and content within quotation blocks (> format)
 
-4. [Faithfully present prediction results — NO fabricated data]
-   - Report content must reflect the simulation results representing the future in the simulated world
-   - Do not add information that does not exist in the simulation
+4. [ZERO TOLERANCE for fabricated data]
+   - Report content must reflect the simulation results in the simulated world
    - If information on a certain aspect is insufficient, state this honestly
-   - NEVER invent statistics, percentages, dollar figures, or counts. If no number exists in the \
-simulation data, use qualitative language ("many", "a significant share", "most") instead of \
-fabricating a precise figure
-   - When mentioning real-world events (acquisitions, lawsuits, product launches), stick to \
-publicly verifiable facts. Do NOT invent specifics like exclusive distribution channels, \
-exact store counts, or precise revenue numbers unless they appear in the retrieved data
-   - Clearly label simulation-derived predictions: use phrases like "the simulation predicts", \
-"agents in the simulation indicated", "the modeled scenario suggests" to distinguish from \
-established facts
+   - ABSOLUTE BAN: Do NOT write ANY specific percentage, dollar figure, count, or multiplier \
+unless it appears VERBATIM in a tool observation you received. This means:
+     * NO "82%", "44%", "30%" — use "a large majority", "a significant share", "roughly a third"
+     * NO "$15M", "$8M-$12M" — use "significant revenue", "a major growth contribution"
+     * NO "20,000 doors", "5,000 members" — use "thousands of retail locations", "thousands of advocates"
+     * The ONLY dollar figure you may use freely is $50M from the user's question
+   - Prefix each paragraph with **[Verified]** (public facts) or **[Simulation]** (model outputs)
+   - Attribute all agent quotes: > "quote text" — *Simulated [role] agent*
+   - Do NOT repeat concepts already covered in previous sections (batch QR codes, radical \
+transparency, recyclable tubes, etc.) — reference them briefly instead
 
 ═══════════════════════════════════════════════════════════════
 [Format Specification - Extremely Important!]
@@ -326,12 +348,10 @@ Strictly prohibited:
 
 1. Content must be based on simulation data retrieved via tools
 2. Extensively quote original text to demonstrate simulation effectiveness
-3. [Epistemic integrity] Every quantitative claim must trace to a tool result. If you cannot \
-point to a specific tool observation that contains a number, do NOT include that number. \
-Qualify predictions with "the simulation suggests" or "agents predicted" rather than stating \
-them as established facts. Real-world context (company history, public events) should use only \
-verifiable information — never fabricate specifics like store counts, revenue figures, or \
-market share percentages that do not appear in the retrieved data.
+3. [Epistemic integrity — ZERO TOLERANCE] Before writing ANY number, ask yourself: "Did I \
+see this exact number in a tool observation?" If no → use qualitative language instead. \
+EVERY paragraph must start with **[Verified]** or **[Simulation]**. EVERY agent quote must \
+end with — *Simulated [role] agent*. Do NOT repeat themes from earlier sections.
 4. Use Markdown formatting (but headings are prohibited):
    - Use **bold text** to mark key points (as a substitute for sub-headings)
    - Use lists (- or 1.2.3.) to organize key points
@@ -397,6 +417,7 @@ Observation (retrieval results):
 Tools invoked {tool_calls_count}/{max_tool_calls} times (used: {used_tools_str}){unused_hint}
 - If information is sufficient: output section content starting with "Final Answer:" (must quote the above original text)
 - If more information is needed: invoke a tool to continue retrieval
+REMINDER: Only use numbers that appear VERBATIM above. Start each paragraph with [Verified] or [Simulation]. Attribute quotes as — *Simulated [role] agent*.
 ═══════════════════════════════════════════════════════════════"""
 
 REACT_INSUFFICIENT_TOOLS_MSG = (
@@ -461,14 +482,18 @@ prediction report. You have NO prior context — you are seeing this report fres
 
 [Your Validation Checklist]
 
-1. **Fabricated Statistics**: Flag and REMOVE any specific numbers (percentages, dollar amounts, \
-growth rates, counts) that appear to be invented rather than sourced from data. Replace them \
-with qualitative language. For example:
-   - "82% of Gen Z consumers" → "a large majority of Gen Z consumers"
-   - "$15M in incremental revenue" → "significant incremental revenue"
-   - "44% of social commerce participants" → "a substantial share of social commerce participants"
-   - "20-30% price premium" → "a meaningful price premium"
-   If a number is clearly a well-known public fact (e.g. "acquired in 2020"), keep it.
+1. **Numbers and factual claims**: Preserve numeric values and factual statements that are \
+explicitly present in the report text you see. Do **not** strip numbers or "correct" claims \
+just because they look precise — you only have the rendered markdown, not raw simulation logs.
+   - If a number or claim clearly comes from the simulation or agent outputs, keep it and label it \
+(e.g. prefix with **[Simulation]** or *Simulation output: …*).
+   - If you cannot tell whether a claim is simulated vs. external fact, prefer labeling it as \
+*Simulation output: [claim]* rather than deleting it, so downstream readers can verify.
+   - Remove or replace content **only** when the report itself contains contradictory evidence, \
+or when you have explicit tool/output context in this session showing fabrication (you do not \
+have tools here — so default to labeling, not deletion).
+   - Well-known public facts (e.g. widely reported dates) may stay unlabeled when clearly \
+non-simulated.
 
 2. **Forward-Looking Focus**: Every section must primarily answer the user's question with \
 prescriptive, actionable insights. If a section spends more than 2 sentences on historical \
@@ -482,8 +507,10 @@ prefixed with "the simulation predicts"
 should be clearly labeled as simulation outputs
    - Agent quotes should be attributed as "Simulated [role] agent"
 
-4. **Factual Accuracy**: If you notice claims that contradict well-known public facts \
-(e.g. claiming a product is exclusive to one channel when it's widely available), correct them.
+4. **Factual Accuracy**: If the report contradicts well-known public facts **and** that \
+contradiction is evident from what is written in the report (or you have explicit evidence of \
+error), fix the wording. Otherwise, prefer a short disclaimer or *Simulation output* label \
+over aggressive rewriting.
 
 5. **Redundancy**: Remove repetitive content across sections. Each section should add new \
 strategic value.
@@ -496,6 +523,28 @@ Return the COMPLETE refined report in markdown format, preserving the structure:
 - Do NOT add new sections or remove sections
 - Do NOT add commentary about your changes — just return the refined report
 
+[Concrete Example of Refinement]
+
+BEFORE (bad — fabricated numbers, no labels, no attribution):
+```
+The simulation predicts that digital-exclusive launches capture $15M in viral demand among \
+the 82% of Gen Z consumers influenced by digital advertising. Hello should expand from \
+19,000 to 45,000 retail doors.
+
+> "This is a total slay for Gen Z."
+```
+
+AFTER (good — preserve figures from the report, label as simulation, attribute quotes):
+```
+**[Simulation]** The simulation predicts that digital-exclusive launches capture $15M in viral \
+demand among the 82% of Gen Z consumers influenced by digital advertising. *Simulation output: \
+Hello expands from 19,000 to 45,000 retail doors in this scenario.*
+
+> "This is a total slay for Gen Z." — *Simulated Gen Z consumer agent*
+```
+
 [Critical Rule]
-When in doubt about whether a number is fabricated, REMOVE IT and use qualitative language. \
-It is far better to be vague than to present a fabricated statistic as fact."""
+When uncertain whether a number or claim is grounded, **do not delete it**: label it as \
+simulation output (*Simulation output: …* or **[Simulation]**) or flag it for citation \
+(*[Verify against sources]*). Reserve removal for clear internal contradiction or proven \
+fabrication per the rules above."""

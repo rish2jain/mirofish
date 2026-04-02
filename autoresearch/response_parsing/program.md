@@ -41,7 +41,7 @@ parse_score = 0.35 * exact_match
 | clean | 6 | Valid JSON, possibly with escapes/unicode |
 | markdown | 3 | JSON inside fenced code blocks (e.g. json language tag) |
 | xml | 3 | JSON inside <json_output> or <response> tags |
-| thinking | 5 | <redacted_thinking>/<thinking> blocks before/around JSON |
+| thinking | 5 | `<think>` and `<thinking>` blocks before/around JSON (see `clean_thinking_blocks`) |
 | preamble | 2 | Natural language before/after JSON |
 | complex | 6 | Multiple wrappers combined (thinking+fence+xml) |
 | array | 2 | JSON objects wrapped in arrays |
@@ -92,7 +92,7 @@ parse_score = 0.35 * exact_match
 ## Current Architecture
 
 The parser pipeline has 7 stages:
-1. `clean_thinking_blocks()` — Remove <redacted_thinking>/<thinking> tags
+1. `clean_thinking_blocks()` — Strip `<think>` / `<thinking>` … `</think>` / `</thinking>` via the same regex as in `response_parser.py`
 2. `extract_from_xml_tags()` — Extract from <json_output> etc.
 3. `strip_markdown_fences()` — Remove ``` wrappers
 4. `extract_json_object()` — Find { } or [ ] in surrounding text

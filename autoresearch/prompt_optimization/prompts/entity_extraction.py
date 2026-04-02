@@ -20,8 +20,6 @@ For subdivisions ("X's Department of Y"), use the parent org name ("X")
 4. Each relationship's source and target must exactly match an entity name you extracted
 5. Assign the most specific entity type available (Executive over Person for a CEO, \
 Official over Person for a politician)
-6. For each entity, provide a brief summary from the text context
-7. For each relationship, provide a fact statement describing it
 
 ## Relationship Type Guide
 The source→target types in the ontology are examples, not strict constraints. \
@@ -43,10 +41,10 @@ entities. Do NOT infer competition from co-occurrence or shared industry
 Return valid JSON:
 {
   "entities": [
-    {"name": "Entity Name", "type": "EntityType", "summary": "Brief description"}
+    {"name": "Entity Name", "type": "EntityType"}
   ],
   "relationships": [
-    {"source": "Source Entity", "target": "Target Entity", "type": "RELATIONSHIP_TYPE", "fact": "Description"}
+    {"source": "Source Entity", "target": "Target Entity", "type": "RELATIONSHIP_TYPE"}
   ]
 }
 """

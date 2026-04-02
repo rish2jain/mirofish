@@ -1330,10 +1330,19 @@ class ReportAgent:
                         outline,
                     )
                     if refined_content:
-                        report.markdown_content = refined_content
-                        # Re-save refined sections
-                        self._save_refined_sections(report_id, refined_content, outline)
-                        logger.info("Report refined by validation pass: %s", report_id)
+                        try:
+                            self._save_refined_sections(
+                                report_id, refined_content, outline
+                            )
+                        except Exception as save_exc:
+                            logger.warning(
+                                "Refined report save failed (keeping assembled report): %s — %s",
+                                report_id,
+                                save_exc,
+                            )
+                        else:
+                            report.markdown_content = refined_content
+                            logger.info("Report refined by validation pass: %s", report_id)
                     else:
                         logger.info("Validation pass returned no changes: %s", report_id)
                 except Exception as ve:
@@ -1463,24 +1472,33 @@ class ReportAgent:
         """Re-save individual section files from refined full markdown."""
         import re
 
-        # Split on ## headings
         section_pattern = re.compile(r'^## ', re.MULTILINE)
         parts = section_pattern.split(refined_markdown)
 
-        # First part is the header (title, summary, ---), skip it
-        section_bodies = []
+        section_bodies: List[Tuple[str, str]] = []
         for part in parts[1:]:  # skip preamble
             lines = part.split('\n', 1)
             title = lines[0].strip()
             body = lines[1].strip() if len(lines) > 1 else ""
             section_bodies.append((title, body))
 
+        expected_n = len(outline.sections)
+        if len(section_bodies) != expected_n:
+            raise ValueError(
+                f"Refined report has {len(section_bodies)} ## sections but outline expects "
+                f"{expected_n}; refusing to write files to avoid misaligned section files."
+            )
+        for i, (title, _body) in enumerate(section_bodies):
+            expected_title = outline.sections[i].title.strip()
+            if title != expected_title:
+                raise ValueError(
+                    f"Refined report section {i + 1} title mismatch: expected "
+                    f"{expected_title!r}, got {title!r}; refusing partial update."
+                )
+
         for i, (title, body) in enumerate(section_bodies):
             section_num = i + 1
-            # Update outline section content
-            if i < len(outline.sections):
-                outline.sections[i].content = body
-            # Save section file
+            outline.sections[i].content = body
             section_content = f"## {title}\n\n{body}"
             section_path = os.path.join(
                 ReportManager.REPORTS_DIR, report_id, f"section_{section_num:02d}.md"
@@ -1488,12 +1506,10 @@ class ReportAgent:
             with open(section_path, 'w', encoding='utf-8') as f:
                 f.write(section_content)
 
-        # Re-save full report
         full_path = os.path.join(ReportManager.REPORTS_DIR, report_id, "full_report.md")
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(refined_markdown)
 
-        # Re-save outline
         ReportManager.save_outline(report_id, outline)
 
     def _get_cached_report_content(self) -> str:

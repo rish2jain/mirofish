@@ -39,10 +39,10 @@ def compute_time_config(
     # minutes_per_round = total_hours * 60 / target_rounds
     # Urgency affects target rounds: more urgent = slightly more rounds per hour
     urgency_rounds_per_day = {
-        "critical": 5.0,
+        "critical": 8.0,
         "high": 6.0,
         "medium": 4.0,
-        "low": 8.0,
+        "low": 3.0,
     }
     rounds_per_day = urgency_rounds_per_day.get(urgency, 5.0)
     target_rounds = max(8, min(25, total_hours / 24.0 * rounds_per_day))

@@ -5,7 +5,7 @@ Usage:
     cd autoresearch/response_parsing && python train.py
 
 NO LLM calls required — this is a pure parsing test against a static corpus
-of 25 pre-recorded LLM responses. Runs in <1 second.
+of 38 pre-recorded LLM responses. Runs in <1 second.
 
 Loads the parser from parsers/response_parser.py, runs it against all eval
 cases, and scores the results.

@@ -1048,6 +1048,11 @@ class PlatformSimulation:
         self.total_actions = 0
 
 
+def platform_simulation_loaded(ps: Optional[PlatformSimulation]) -> bool:
+    """True when a platform run produced a usable OASIS environment (same notion as truthy .env)."""
+    return ps is not None and ps.env is not None
+
+
 async def load_twitter_env(
     config: Dict[str, Any],
     simulation_dir: str,
@@ -1661,6 +1666,31 @@ async def main():
                 load_reddit_env(config, simulation_dir, log_manager),
             )
             twitter_result, reddit_result = results
+
+        if args.twitter_only and not platform_simulation_loaded(twitter_result):
+            log_manager.error(
+                "WAIT-ONLY: Twitter environment failed to load (missing profiles/DB or setup error). "
+                "Cannot enter command-waiting mode."
+            )
+            sys.exit(1)
+        if args.reddit_only and not platform_simulation_loaded(reddit_result):
+            log_manager.error(
+                "WAIT-ONLY: Reddit environment failed to load (missing profiles/DB or setup error). "
+                "Cannot enter command-waiting mode."
+            )
+            sys.exit(1)
+        if (
+            not args.twitter_only
+            and not args.reddit_only
+            and not platform_simulation_loaded(twitter_result)
+            and not platform_simulation_loaded(reddit_result)
+        ):
+            log_manager.error(
+                "WAIT-ONLY: No platforms loaded — both Twitter and Reddit environments are empty "
+                "(check twitter_profiles.csv + twitter_simulation.db and "
+                "reddit_profiles.json + reddit_simulation.db). Cannot enter command-waiting mode."
+            )
+            sys.exit(1)
 
         total_elapsed = (datetime.now() - start_time).total_seconds()
         log_manager.info("=" * 60)

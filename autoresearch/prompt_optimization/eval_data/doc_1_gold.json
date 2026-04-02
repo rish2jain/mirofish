@@ -31,6 +31,7 @@
     {"source": "Goldman Sachs", "target": "European Commission", "type": "REPORTS_ON"},
     {"source": "Reuters", "target": "European Commission", "type": "REPORTS_ON"},
     {"source": "Bloomberg", "target": "European Commission", "type": "REPORTS_ON"},
+    {"source": "Ministry of Science and Technology", "target": "European Commission", "type": "REPORTS_ON"},
     {"source": "Mistral", "target": "European Commission", "type": "OPPOSES"},
     {"source": "European Commission", "target": "OpenAI", "type": "REGULATES"},
     {"source": "European Commission", "target": "Google DeepMind", "type": "REGULATES"},

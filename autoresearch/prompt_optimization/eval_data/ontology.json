@@ -12,10 +12,10 @@
     {"name": "Organization", "description": "Any organization not fitting other types", "attributes": [{"name": "org_type", "type": "text", "description": "Type of organization"}]}
   ],
   "edge_types": [
-    {"name": "WORKS_FOR", "description": "Employment or leadership relationship", "source_targets": [{"source": "Person", "target": "Organization"}]},
+    {"name": "WORKS_FOR", "description": "Employment or leadership relationship", "source_targets": [{"source": "Person", "target": "Organization"}, {"source": "Executive", "target": "Company"}, {"source": "Journalist", "target": "MediaOutlet"}, {"source": "Official", "target": "GovernmentAgency"}]},
     {"name": "AFFILIATED_WITH", "description": "Association or membership", "source_targets": [{"source": "Person", "target": "Organization"}]},
     {"name": "REGULATES", "description": "Regulatory oversight relationship", "source_targets": [{"source": "GovernmentAgency", "target": "Company"}]},
-    {"name": "REPORTS_ON", "description": "Covers or analyzes a subject", "source_targets": [{"source": "MediaOutlet", "target": "Organization"}]},
+    {"name": "REPORTS_ON", "description": "Covers or analyzes a subject", "source_targets": [{"source": "MediaOutlet", "target": "Organization"}, {"source": "Company", "target": "GovernmentAgency"}, {"source": "GovernmentAgency", "target": "GovernmentAgency"}]},
     {"name": "SUPPORTS", "description": "Endorses or supports position", "source_targets": [{"source": "Organization", "target": "Organization"}]},
     {"name": "OPPOSES", "description": "Criticizes or opposes position", "source_targets": [{"source": "Organization", "target": "Organization"}]},
     {"name": "COLLABORATES_WITH", "description": "Partnership or cooperation", "source_targets": [{"source": "Organization", "target": "Organization"}]},

@@ -585,6 +585,10 @@ class SimulationRunner:
         state.reddit_running = has_reddit
         cls._save_run_state(state)
 
+        # Match start_simulation: env-only / wait-only runs do not use graph memory updaters
+        with cls._runner_lock:
+            cls._graph_memory_enabled[simulation_id] = False
+
         script_path = os.path.join(cls.SCRIPTS_DIR, "run_parallel_simulation.py")
 
         try:
@@ -596,46 +600,56 @@ class SimulationRunner:
             ]
 
             main_log_path = os.path.join(sim_dir, "simulation.log")
-            main_log_file = open(main_log_path, 'a', encoding='utf-8')
+            main_log_file = None
+            log_file_registered = False
+            try:
+                main_log_file = open(main_log_path, 'a', encoding='utf-8')
+                env = os.environ.copy()
+                env['PYTHONUTF8'] = '1'
+                env['PYTHONIOENCODING'] = 'utf-8'
 
-            env = os.environ.copy()
-            env['PYTHONUTF8'] = '1'
-            env['PYTHONIOENCODING'] = 'utf-8'
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=sim_dir,
+                    stdout=main_log_file,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    bufsize=1,
+                    env=env,
+                    start_new_session=True,
+                )
 
-            process = subprocess.Popen(
-                cmd,
-                cwd=sim_dir,
-                stdout=main_log_file,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding='utf-8',
-                bufsize=1,
-                env=env,
-                start_new_session=True,
-            )
+                with cls._runner_lock:
+                    cls._stdout_files[simulation_id] = main_log_file
+                    cls._stderr_files[simulation_id] = None
+                    state.process_pid = process.pid
+                    cls._processes[simulation_id] = process
+                log_file_registered = True
 
-            with cls._runner_lock:
-                cls._stdout_files[simulation_id] = main_log_file
-                cls._stderr_files[simulation_id] = None
-                state.process_pid = process.pid
-                cls._processes[simulation_id] = process
+                state.runner_status = RunnerStatus.RUNNING
+                cls._save_run_state(state)
 
-            state.runner_status = RunnerStatus.RUNNING
-            cls._save_run_state(state)
+                monitor_thread = threading.Thread(
+                    target=cls._monitor_simulation,
+                    args=(simulation_id,),
+                    daemon=True
+                )
+                monitor_thread.start()
+                with cls._runner_lock:
+                    cls._monitor_threads[simulation_id] = monitor_thread
 
-            monitor_thread = threading.Thread(
-                target=cls._monitor_simulation,
-                args=(simulation_id,),
-                daemon=True
-            )
-            monitor_thread.start()
-            with cls._runner_lock:
-                cls._monitor_threads[simulation_id] = monitor_thread
-
-            logger.info(
-                f"Environment started (wait-only): {simulation_id}, "
-                f"pid={process.pid}, twitter={has_twitter}, reddit={has_reddit}"
-            )
+                logger.info(
+                    f"Environment started (wait-only): {simulation_id}, "
+                    f"pid={process.pid}, twitter={has_twitter}, reddit={has_reddit}"
+                )
+            except Exception:
+                if main_log_file is not None and not log_file_registered:
+                    try:
+                        main_log_file.close()
+                    except OSError:
+                        pass
+                raise
 
         except Exception as e:
             state.runner_status = RunnerStatus.FAILED
